@@ -175,6 +175,7 @@ def _step_energy_snapshot(env, robot_index):
 def _new_episode_accumulator():
     return {
         "steps": 0,
+        "dynamic_steps": 0,
         "distance_x": 0.0,
         "path_length_xy": 0.0,
         "body_frame_distance_x": 0.0,
@@ -187,13 +188,17 @@ def _new_episode_accumulator():
     }
 
 
-def _accumulate_episode(acc, snapshot, pre_step_state, post_step_root_pos, dt):
+def _accumulate_episode(
+    acc, snapshot, pre_step_state, post_step_root_pos, dynamic_state_valid, dt
+):
     world_dx = post_step_root_pos[0] - pre_step_state["pre_step_root_pos_x"]
     world_dy = post_step_root_pos[1] - pre_step_state["pre_step_root_pos_y"]
     acc["steps"] += 1
     acc["distance_x"] += world_dx
     acc["path_length_xy"] += (world_dx * world_dx + world_dy * world_dy) ** 0.5
-    acc["body_frame_distance_x"] += pre_step_state["pre_step_base_vel_x"] * dt
+    if dynamic_state_valid:
+        acc["dynamic_steps"] += 1
+        acc["body_frame_distance_x"] += pre_step_state["pre_step_base_vel_x"] * dt
     for key in (
         "rotor_pos",
         "rotor_neg",
@@ -208,6 +213,7 @@ def _accumulate_episode(acc, snapshot, pre_step_state, post_step_root_pos, dt):
 
 def _episode_summary_row(episode_id, acc, timeout, dt):
     duration_s = acc["steps"] * dt
+    dynamic_duration_s = acc["dynamic_steps"] * dt
     episode_outcome = "success" if timeout else "fall"
     row = {
         "episode_id": episode_id,
@@ -215,13 +221,15 @@ def _episode_summary_row(episode_id, acc, timeout, dt):
         "timeout": float(timeout),
         "fall": float(not timeout),
         "duration_s": duration_s,
+        "dynamic_duration_s": dynamic_duration_s,
+        "dynamic_steps": acc["dynamic_steps"],
         "distance_x": acc["distance_x"],
         "mean_velocity_x": acc["distance_x"] / max(duration_s, 1e-8),
         "path_length_xy": acc["path_length_xy"],
         "mean_path_velocity_xy": acc["path_length_xy"] / max(duration_s, 1e-8),
         "body_frame_distance_x": acc["body_frame_distance_x"],
         "mean_body_frame_velocity_x": acc["body_frame_distance_x"]
-        / max(duration_s, 1e-8),
+        / max(dynamic_duration_s, 1e-8),
         "rotor_positive_energy_8": sum(acc["rotor_pos"]),
         "rotor_negative_energy_8": sum(acc["rotor_neg"]),
         "yaw_positive_energy_2": sum(acc["yaw_pos"]),
@@ -374,11 +382,21 @@ def evaluate(args):
         "rotor_names": list(BRUCE_ROTOR_NAMES),
         "joint_names": list(JOINT_NAMES),
         "state_rows_sample": "pre_step",
-        "valid_state_semantics": "pre_step_state_valid",
+        "valid_state_semantics": "pre_step_dynamic_state_valid",
+        "pre_step_dynamic_state_valid": (
+            "false for episode_step 0 because automatic reset does not refresh "
+            "base_lin_vel/contact_forces until the next physics step"
+        ),
         "distance_x_source": "world_root_position_delta_x",
         "path_length_xy_source": "world_root_position_delta_xy",
+        "body_frame_distance_x_source": (
+            "pre_step_base_lin_vel_x integrated only when "
+            "pre_step_dynamic_state_valid is true"
+        ),
         "instantaneous_motor_fields_sample": "last_physics_substep",
-        "phase_summary_energy_source": "integrated_policy_step_energy",
+        "phase_summary_energy_source": (
+            "integrated_policy_step_energy for pre_step_dynamic_state_valid rows"
+        ),
     }
 
     step_rows = []
@@ -403,6 +421,7 @@ def evaluate(args):
             done = bool(dones[robot_index].item())
             timeout = bool(env.time_out_buf[robot_index].item())
             pre_step_state_valid = True
+            pre_step_dynamic_state_valid = episode_step > 0
             post_step_state_valid = not done
             post_step_root_pos = _tensor_list(
                 env.pre_reset_root_states[robot_index, :3]
@@ -411,11 +430,24 @@ def evaluate(args):
             world_dy = post_step_root_pos[1] - pre_step_state["pre_step_root_pos_y"]
             world_dz = post_step_root_pos[2] - pre_step_state["pre_step_root_pos_z"]
             world_path_xy = (world_dx * world_dx + world_dy * world_dy) ** 0.5
+            body_frame_delta_x = (
+                pre_step_state["pre_step_base_vel_x"] * env.dt
+                if pre_step_dynamic_state_valid
+                else 0.0
+            )
             snapshot = _step_energy_snapshot(env, robot_index)
             _accumulate_episode(
-                episode_acc, snapshot, pre_step_state, post_step_root_pos, env.dt
+                episode_acc,
+                snapshot,
+                pre_step_state,
+                post_step_root_pos,
+                pre_step_dynamic_state_valid,
+                env.dt,
             )
-            _record_phase(episode_phase_acc, pre_step_state["phase_label"], snapshot)
+            if pre_step_dynamic_state_valid:
+                _record_phase(
+                    episode_phase_acc, pre_step_state["phase_label"], snapshot
+                )
 
             row = {
                 "global_step": global_step,
@@ -423,8 +455,9 @@ def evaluate(args):
                 "episode_step": episode_step,
                 "done": float(done),
                 "timeout": float(timeout),
-                "valid_state": float(pre_step_state_valid),
+                "valid_state": float(pre_step_dynamic_state_valid),
                 "pre_step_state_valid": float(pre_step_state_valid),
+                "pre_step_dynamic_state_valid": float(pre_step_dynamic_state_valid),
                 "post_step_state_valid": float(post_step_state_valid),
                 "cost1": _to_float(costs[0][robot_index]),
                 "command_x": args.command_x,
@@ -443,7 +476,7 @@ def evaluate(args):
                 "step_world_delta_y": world_dy,
                 "step_world_delta_z": world_dz,
                 "step_world_path_xy": world_path_xy,
-                "body_frame_delta_x": pre_step_state["pre_step_base_vel_x"] * env.dt,
+                "body_frame_delta_x": body_frame_delta_x,
             }
             row.update(pre_step_state)
             _add_motor_fields(row, "positive_energy", snapshot["rotor_pos"])

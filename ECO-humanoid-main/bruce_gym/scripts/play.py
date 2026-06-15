@@ -39,7 +39,7 @@ import time
 # import isaacgym
 from bruce_gym.envs import *
 from bruce_gym.utils import  get_args, export_policy_as_jit, task_registry, Logger
-from bruce_gym.rotor_energy import BRUCE_ROTOR_NAMES
+from bruce_gym.rotor_energy import BRUCE_ROTOR_NAMES, BRUCE_YAW_JOINT_INDICES
 from isaacgym.torch_utils import *
 from PIL import Image
 
@@ -69,6 +69,33 @@ def _flatten_log_for_csv(values):
         else:
             row[key] = value.item() if hasattr(value, "item") else value
     return row
+
+
+def _resolve_foot_contact_indices(feet_names):
+    if "ankle_pitch_link_l" in feet_names and "ankle_pitch_link_r" in feet_names:
+        return (
+            feet_names.index("ankle_pitch_link_l"),
+            feet_names.index("ankle_pitch_link_r"),
+        )
+    if len(feet_names) >= 2:
+        return 0, 1
+    raise ValueError(f"Expected at least two feet, got: {feet_names}")
+
+
+def _resolve_dof_pair(dof_names, left_name, right_name, fallback):
+    if left_name in dof_names and right_name in dof_names:
+        return dof_names.index(left_name), dof_names.index(right_name)
+    return fallback
+
+
+def _resolve_yaw_energy_indices(left_dof_idx, right_dof_idx):
+    yaw_dof_indices = list(BRUCE_YAW_JOINT_INDICES)
+    if left_dof_idx in yaw_dof_indices and right_dof_idx in yaw_dof_indices:
+        return (
+            yaw_dof_indices.index(left_dof_idx),
+            yaw_dof_indices.index(right_dof_idx),
+        )
+    return 0, 1
 
 
 def on_press(key):
@@ -134,6 +161,15 @@ def play(args):
         logger = Logger(env.dt)
         robot_index = 0 # which robot is used for logging
         joint_index = 4 # which joint is used for logging
+        left_foot_idx, right_foot_idx = _resolve_foot_contact_indices(
+            getattr(env, "feet_names", [])
+        )
+        left_hip_yaw_idx, right_hip_yaw_idx = _resolve_dof_pair(
+            list(env.dof_names), "hip_yaw_l", "hip_yaw_r", fallback=(0, 5)
+        )
+        left_yaw_energy_idx, right_yaw_energy_idx = _resolve_yaw_energy_indices(
+            left_hip_yaw_idx, right_hip_yaw_idx
+        )
         stop_state_log = 50000 # number of steps before plotting states
         listener = keyboard.Listener(on_press=on_press)
         listener.start()
@@ -274,19 +310,23 @@ def play(args):
                     'episode_step': episode_step,
                     'done': float(done),
                     'gait_phase': gait_phase,
-                    'left_contact_state': foot_contact[0].float().item(),
-                    'right_contact_state': foot_contact[1].float().item(),
-                    'left_contact_force_z': foot_force_z[0].item(),
-                    'right_contact_force_z': foot_force_z[1].item(),
-                    'hip_yaw_power_l': env.torques[robot_index, 0].item() * env.dof_vel[robot_index, 0].item(),
-                    'hip_yaw_power_r': env.torques[robot_index, 5].item() * env.dof_vel[robot_index, 5].item(),
+                    'left_contact_state': foot_contact[left_foot_idx].float().item(),
+                    'right_contact_state': foot_contact[right_foot_idx].float().item(),
+                    'left_contact_force_z': foot_force_z[left_foot_idx].item(),
+                    'right_contact_force_z': foot_force_z[right_foot_idx].item(),
+                    'hip_yaw_power_l': env.torques[robot_index, left_hip_yaw_idx].item()
+                    * env.dof_vel[robot_index, left_hip_yaw_idx].item(),
+                    'hip_yaw_power_r': env.torques[robot_index, right_hip_yaw_idx].item()
+                    * env.dof_vel[robot_index, right_hip_yaw_idx].item(),
                     'base_vel_x': env.base_lin_vel[robot_index, 0].item(),
                     'base_vel_y': env.base_lin_vel[robot_index, 1].item(),
                     'base_vel_z': env.base_lin_vel[robot_index, 2].item(),
                     'contact_forces_z': foot_force_z.cpu().numpy(),
                     'contact_vel_z': torch.norm(env.rigid_state[robot_index, env.feet_indices, 7:10], dim=-1).cpu().numpy(),
-                    'contact_period': [env._get_gait_phase()[robot_index, 0].item(),
-                                    env._get_gait_phase()[robot_index, 1].item()],
+                    'contact_period': [
+                        env._get_gait_phase()[robot_index, left_foot_idx].item(),
+                        env._get_gait_phase()[robot_index, right_foot_idx].item(),
+                    ],
 
                     'base_euler0_gym': env.base_euler_xyz[robot_index,0].item(),
                     'base_euler1_gym': env.base_euler_xyz[robot_index,1].item(),
@@ -311,10 +351,18 @@ def play(args):
                 log_dict.update({
                     'rotor_drive_energy': env.rotor_drive_energy[robot_index].item(),
                     'rotor_brake_energy': env.rotor_brake_energy[robot_index].item(),
-                    'hip_yaw_drive_energy_l': env.yaw_joint_drive_energy[robot_index, 0].item(),
-                    'hip_yaw_drive_energy_r': env.yaw_joint_drive_energy[robot_index, 1].item(),
-                    'hip_yaw_brake_energy_l': env.yaw_joint_brake_energy[robot_index, 0].item(),
-                    'hip_yaw_brake_energy_r': env.yaw_joint_brake_energy[robot_index, 1].item(),
+                    'hip_yaw_drive_energy_l': env.yaw_joint_drive_energy[
+                        robot_index, left_yaw_energy_idx
+                    ].item(),
+                    'hip_yaw_drive_energy_r': env.yaw_joint_drive_energy[
+                        robot_index, right_yaw_energy_idx
+                    ].item(),
+                    'hip_yaw_brake_energy_l': env.yaw_joint_brake_energy[
+                        robot_index, left_yaw_energy_idx
+                    ].item(),
+                    'hip_yaw_brake_energy_r': env.yaw_joint_brake_energy[
+                        robot_index, right_yaw_energy_idx
+                    ].item(),
                 })
             if args.task == 'kuavo_ppo':
                 log_dict.update({
@@ -336,7 +384,9 @@ def play(args):
                 )
             csv_row = _flatten_log_for_csv({
                 'step': step_env,
-                'l_ankele_pos_z': env.rigid_state[robot_index, env.feet_indices[0], 2].item(),
+                'l_ankele_pos_z': env.rigid_state[
+                    robot_index, env.feet_indices[left_foot_idx], 2
+                ].item(),
                 **log_dict,
             })
             if csv_header is None:
