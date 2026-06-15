@@ -12,22 +12,15 @@ import torch
 
 from bruce_gym import LEGGED_GYM_ROOT_DIR
 from bruce_gym.envs import *  # noqa: F401,F403
-from bruce_gym.rotor_energy import BRUCE_ROTOR_NAMES, SUPPORTED_ENERGY_COST_MODES
+from bruce_gym.rotor_energy import (
+    BRUCE_EXPECTED_DOF_NAMES,
+    BRUCE_ROTOR_NAMES,
+    SUPPORTED_ENERGY_COST_MODES,
+)
 from bruce_gym.utils import get_args, task_registry
 
 
-JOINT_NAMES = (
-    "hip_yaw_l",
-    "hip_pitch_l",
-    "hip_roll_l",
-    "knee_pitch_l",
-    "ankle_pitch_l",
-    "hip_yaw_r",
-    "hip_pitch_r",
-    "hip_roll_r",
-    "knee_pitch_r",
-    "ankle_pitch_r",
-)
+JOINT_NAMES = BRUCE_EXPECTED_DOF_NAMES
 
 
 def _to_float(value):
@@ -66,10 +59,23 @@ def _set_eval_config(env_cfg, args):
     env_cfg.terrain.mesh_type = "plane"
     env_cfg.terrain.curriculum = False
     env_cfg.terrain.measure_heights = False
+    env_cfg.commands.heading_command = False
+    env_cfg.commands.ranges.lin_vel_x = [args.command_x, args.command_x]
+    env_cfg.commands.ranges.lin_vel_y = [args.command_y, args.command_y]
+    env_cfg.commands.ranges.ang_vel_yaw = [args.command_yaw, args.command_yaw]
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.push_robots = False
     env_cfg.domain_rand.disturbance = False
     env_cfg.domain_rand.delay = False
+    env_cfg.domain_rand.randomize_dof_init = False
+    env_cfg.domain_rand.randomize_euler = False
+    env_cfg.domain_rand.randomize_payload_mass = False
+    env_cfg.domain_rand.randomize_com_displacement = False
+    env_cfg.domain_rand.randomize_link_mass = False
+    env_cfg.domain_rand.randomize_friction = False
+    env_cfg.domain_rand.randomize_restitution = False
+    env_cfg.domain_rand.randomize_joint_friction = False
+    env_cfg.domain_rand.randomize_joint_armature = False
     env_cfg.domain_rand.randomize_kp = False
     env_cfg.domain_rand.randomize_kd = False
     if hasattr(env_cfg.domain_rand, "randomize_motor_strength"):
@@ -104,6 +110,38 @@ def _add_motor_fields(row, prefix, values):
 def _add_joint_fields(row, prefix, values):
     for idx, joint_name in enumerate(JOINT_NAMES):
         row[f"{joint_name}_{prefix}"] = values[idx]
+
+
+def _resolve_foot_contact_indices(feet_names):
+    if "ankle_pitch_link_l" in feet_names and "ankle_pitch_link_r" in feet_names:
+        return (
+            feet_names.index("ankle_pitch_link_l"),
+            feet_names.index("ankle_pitch_link_r"),
+        )
+    if len(feet_names) >= 2:
+        return 0, 1
+    raise ValueError(f"Expected at least two BRUCE feet, got: {feet_names}")
+
+
+def _pre_step_state(env, robot_index, left_foot_idx, right_foot_idx):
+    foot_force_z = env.contact_forces[robot_index, env.feet_indices, 2]
+    left_contact = bool((foot_force_z[left_foot_idx] > 5.0).item())
+    right_contact = bool((foot_force_z[right_foot_idx] > 5.0).item())
+    base_vel = _tensor_list(env.base_lin_vel[robot_index])
+    return {
+        "gait_phase": _to_float(torch.remainder(env._get_phase()[robot_index], 1.0)),
+        "phase_label": _phase_label(left_contact, right_contact),
+        "left_contact_state": float(left_contact),
+        "right_contact_state": float(right_contact),
+        "left_contact_force_z": _to_float(foot_force_z[left_foot_idx]),
+        "right_contact_force_z": _to_float(foot_force_z[right_foot_idx]),
+        "pre_step_base_vel_x": base_vel[0],
+        "pre_step_base_vel_y": base_vel[1],
+        "pre_step_base_vel_z": base_vel[2],
+        "base_vel_x": base_vel[0],
+        "base_vel_y": base_vel[1],
+        "base_vel_z": base_vel[2],
+    }
 
 
 def _step_energy_snapshot(env, robot_index):
@@ -153,8 +191,10 @@ def _accumulate_episode(acc, snapshot, base_vel_x, dt):
 
 def _episode_summary_row(episode_id, acc, timeout, dt):
     duration_s = acc["steps"] * dt
+    episode_outcome = "success" if timeout else "fall"
     row = {
         "episode_id": episode_id,
+        "episode_outcome": episode_outcome,
         "timeout": float(timeout),
         "fall": float(not timeout),
         "duration_s": duration_s,
@@ -174,31 +214,78 @@ def _episode_summary_row(episode_id, acc, timeout, dt):
     return row
 
 
+def _empty_phase_stats():
+    return {
+        "episodes": 0,
+        "valid_steps": 0,
+        "rotor_pos": [0.0] * len(BRUCE_ROTOR_NAMES),
+        "rotor_neg": [0.0] * len(BRUCE_ROTOR_NAMES),
+        "yaw_pos": [0.0, 0.0],
+        "yaw_neg": [0.0, 0.0],
+        "joint_pos": [0.0] * len(JOINT_NAMES),
+        "joint_neg": [0.0] * len(JOINT_NAMES),
+    }
+
+
 def _init_phase_accumulators():
-    return defaultdict(
-        lambda: {
-            "valid_steps": 0,
-            "rotor_positive_energy_8": 0.0,
-            "rotor_negative_energy_8": 0.0,
-            "joint_positive_energy_10": 0.0,
-            "joint_negative_energy_10": 0.0,
-        }
-    )
+    return defaultdict(_empty_phase_stats)
+
+
+def _add_energy_lists(values, snapshot):
+    for target_key, snapshot_key in (
+        ("rotor_pos", "rotor_pos"),
+        ("rotor_neg", "rotor_neg"),
+        ("yaw_pos", "yaw_pos"),
+        ("yaw_neg", "yaw_neg"),
+        ("joint_pos", "joint_pos"),
+        ("joint_neg", "joint_neg"),
+    ):
+        for idx, value in enumerate(snapshot[snapshot_key]):
+            values[target_key][idx] += value
 
 
 def _record_phase(phase_acc, phase, snapshot):
     phase_acc[phase]["valid_steps"] += 1
-    phase_acc[phase]["rotor_positive_energy_8"] += snapshot["rotor_pos_total"]
-    phase_acc[phase]["rotor_negative_energy_8"] += snapshot["rotor_neg_total"]
-    phase_acc[phase]["joint_positive_energy_10"] += snapshot["joint_pos_total"]
-    phase_acc[phase]["joint_negative_energy_10"] += snapshot["joint_neg_total"]
+    _add_energy_lists(phase_acc[phase], snapshot)
+
+
+def _merge_phase_accumulators(target, source, episode_outcome):
+    for phase, source_values in source.items():
+        values = target[(episode_outcome, phase)]
+        values["episodes"] += 1
+        values["valid_steps"] += source_values["valid_steps"]
+        for key in (
+            "rotor_pos",
+            "rotor_neg",
+            "yaw_pos",
+            "yaw_neg",
+            "joint_pos",
+            "joint_neg",
+        ):
+            for idx, value in enumerate(source_values[key]):
+                values[key][idx] += value
 
 
 def _phase_summary_rows(phase_acc, dt):
     rows = []
-    for phase, values in sorted(phase_acc.items()):
-        row = {"phase": phase, **values}
+    for (episode_outcome, phase), values in sorted(phase_acc.items()):
+        row = {
+            "episode_outcome": episode_outcome,
+            "phase": phase,
+            "episodes": values["episodes"],
+            "valid_steps": values["valid_steps"],
+            "rotor_positive_energy_8": sum(values["rotor_pos"]),
+            "rotor_negative_energy_8": sum(values["rotor_neg"]),
+            "yaw_positive_energy_2": sum(values["yaw_pos"]),
+            "yaw_negative_energy_2": sum(values["yaw_neg"]),
+            "joint_positive_energy_10": sum(values["joint_pos"]),
+            "joint_negative_energy_10": sum(values["joint_neg"]),
+        }
         row["duration_s"] = values["valid_steps"] * dt
+        _add_motor_fields(row, "positive_energy", values["rotor_pos"])
+        _add_motor_fields(row, "negative_energy", values["rotor_neg"])
+        _add_joint_fields(row, "positive_energy", values["joint_pos"])
+        _add_joint_fields(row, "negative_energy", values["joint_neg"])
         rows.append(row)
     return rows
 
@@ -213,7 +300,10 @@ def _default_output_dir(args):
 def evaluate(args):
     if args.task == "XBotL_free":
         args.task = "bruce_ppolag"
-    if args.energy_cost_mode is not None and args.energy_cost_mode not in SUPPORTED_ENERGY_COST_MODES:
+    if (
+        args.energy_cost_mode is not None
+        and args.energy_cost_mode not in SUPPORTED_ENERGY_COST_MODES
+    ):
         raise ValueError(
             f"Unsupported energy_cost_mode '{args.energy_cost_mode}'. "
             f"Supported modes are: {SUPPORTED_ENERGY_COST_MODES}"
@@ -227,14 +317,20 @@ def evaluate(args):
     train_cfg.runner.resume = True
 
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
-    _set_fixed_command(env, args)
-    env.compute_observations()
-    obs = env.get_observations()
 
     runner, train_cfg = task_registry.make_alg_runner(
         env=env, name=args.task, args=args, train_cfg=train_cfg
     )
     policy = runner.get_inference_policy(device=env.device)
+    _set_fixed_command(env, args)
+    env.compute_observations()
+    obs = env.get_observations()
+
+    feet_names = getattr(env, "feet_names", [])
+    body_names = getattr(env, "body_names", [])
+    print("DOF_NAMES:", env.dof_names)
+    print("FEET_NAMES:", feet_names)
+    left_foot_idx, right_foot_idx = _resolve_foot_contact_indices(feet_names)
 
     metadata = {
         "task": args.task,
@@ -248,11 +344,20 @@ def evaluate(args):
         "policy_dt": env.dt,
         "sim_dt": env.sim_params.dt,
         "output_dir": output_dir,
+        "dof_names": list(env.dof_names),
+        "body_names": list(body_names),
+        "feet_names": list(feet_names),
+        "left_foot_name": feet_names[left_foot_idx],
+        "right_foot_name": feet_names[right_foot_idx],
+        "rotor_names": list(BRUCE_ROTOR_NAMES),
+        "joint_names": list(JOINT_NAMES),
+        "state_rows_sample": "pre_step",
     }
 
     step_rows = []
     episode_rows = []
     phase_acc = _init_phase_accumulators()
+    episode_phase_acc = _init_phase_accumulators()
     episode_acc = _new_episode_accumulator()
     episode_id = 0
     episode_step = 0
@@ -262,6 +367,9 @@ def evaluate(args):
     with torch.inference_mode():
         for global_step in range(max_steps):
             _set_fixed_command(env, args)
+            pre_step_state = _pre_step_state(
+                env, robot_index, left_foot_idx, right_foot_idx
+            )
             actions = policy(obs.detach())
             obs, _, _, dones, infos, costs = env.step(actions.detach())
 
@@ -269,8 +377,10 @@ def evaluate(args):
             timeout = bool(env.time_out_buf[robot_index].item())
             valid_state = not done
             snapshot = _step_energy_snapshot(env, robot_index)
-            base_vel_x = _to_float(env.base_lin_vel[robot_index, 0])
-            _accumulate_episode(episode_acc, snapshot, base_vel_x, env.dt)
+            _accumulate_episode(
+                episode_acc, snapshot, pre_step_state["pre_step_base_vel_x"], env.dt
+            )
+            _record_phase(episode_phase_acc, pre_step_state["phase_label"], snapshot)
 
             row = {
                 "global_step": global_step,
@@ -290,44 +400,47 @@ def evaluate(args):
                 "joint_positive_energy_10": snapshot["joint_pos_total"],
                 "joint_negative_energy_10": snapshot["joint_neg_total"],
             }
+            row.update(pre_step_state)
             _add_motor_fields(row, "positive_energy", snapshot["rotor_pos"])
             _add_motor_fields(row, "negative_energy", snapshot["rotor_neg"])
             _add_motor_fields(row, "power", _tensor_list(env.rotor_power[robot_index]))
             _add_motor_fields(row, "torque", _tensor_list(env.rotor_torque[robot_index]))
-            _add_motor_fields(row, "velocity", _tensor_list(env.rotor_velocity[robot_index]))
+            _add_motor_fields(
+                row, "velocity", _tensor_list(env.rotor_velocity[robot_index])
+            )
             _add_joint_fields(row, "positive_energy", snapshot["joint_pos"])
             _add_joint_fields(row, "negative_energy", snapshot["joint_neg"])
             _add_joint_fields(row, "power", _tensor_list(env.joint_power[robot_index]))
 
             if valid_state:
-                foot_force_z = env.contact_forces[robot_index, env.feet_indices, 2]
-                left_contact = bool((foot_force_z[0] > 5.0).item())
-                right_contact = bool((foot_force_z[1] > 5.0).item())
-                phase = _phase_label(left_contact, right_contact)
                 row.update(
                     {
-                        "gait_phase": _to_float(torch.remainder(env._get_phase()[robot_index], 1.0)),
-                        "phase_label": phase,
-                        "left_contact_state": float(left_contact),
-                        "right_contact_state": float(right_contact),
-                        "left_contact_force_z": _to_float(foot_force_z[0]),
-                        "right_contact_force_z": _to_float(foot_force_z[1]),
-                        "base_vel_x": base_vel_x,
-                        "base_vel_y": _to_float(env.base_lin_vel[robot_index, 1]),
-                        "base_vel_z": _to_float(env.base_lin_vel[robot_index, 2]),
+                        "post_step_base_vel_x": _to_float(
+                            env.base_lin_vel[robot_index, 0]
+                        ),
+                        "post_step_base_vel_y": _to_float(
+                            env.base_lin_vel[robot_index, 1]
+                        ),
+                        "post_step_base_vel_z": _to_float(
+                            env.base_lin_vel[robot_index, 2]
+                        ),
                     }
                 )
-                _record_phase(phase_acc, phase, snapshot)
             step_rows.append(row)
 
             episode_step += 1
             if done:
+                episode_outcome = "success" if timeout else "fall"
                 episode_rows.append(
                     _episode_summary_row(episode_id, episode_acc, timeout, env.dt)
+                )
+                _merge_phase_accumulators(
+                    phase_acc, episode_phase_acc, episode_outcome
                 )
                 episode_id += 1
                 episode_step = 0
                 episode_acc = _new_episode_accumulator()
+                episode_phase_acc = _init_phase_accumulators()
                 if episode_id >= args.num_eval_episodes:
                     break
         else:

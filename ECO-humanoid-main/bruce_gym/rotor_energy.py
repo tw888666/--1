@@ -10,27 +10,27 @@ import torch
 BRUCE_DRIVE_JOINT_INDICES = (1, 2, 3, 4, 6, 7, 8, 9)
 BRUCE_YAW_JOINT_INDICES = (0, 5)
 BRUCE_EXPECTED_DOF_NAMES = (
-    "hip_yaw_l",
-    "hip_pitch_l",
-    "hip_roll_l",
-    "knee_pitch_l",
-    "ankle_pitch_l",
     "hip_yaw_r",
     "hip_pitch_r",
     "hip_roll_r",
     "knee_pitch_r",
     "ankle_pitch_r",
+    "hip_yaw_l",
+    "hip_pitch_l",
+    "hip_roll_l",
+    "knee_pitch_l",
+    "ankle_pitch_l",
 )
 
 BRUCE_ROTOR_NAMES = (
-    "left_hip_motor_0",
-    "left_hip_motor_1",
-    "left_lower_motor_0",
-    "left_lower_motor_1",
     "right_hip_motor_0",
     "right_hip_motor_1",
     "right_lower_motor_0",
     "right_lower_motor_1",
+    "left_hip_motor_0",
+    "left_hip_motor_1",
+    "left_lower_motor_0",
+    "left_lower_motor_1",
 )
 
 LEGACY_JOINT_ABS_10 = "legacy_joint_abs_10"

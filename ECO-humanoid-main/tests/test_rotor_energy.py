@@ -1,4 +1,6 @@
 import unittest
+import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import torch
 
@@ -173,18 +175,30 @@ class BruceRotorEnergyTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             assert_bruce_dof_order(
                 (
-                    "hip_pitch_l",
-                    "hip_yaw_l",
-                    "hip_roll_l",
-                    "knee_pitch_l",
-                    "ankle_pitch_l",
                     "hip_yaw_r",
                     "hip_pitch_r",
                     "hip_roll_r",
                     "knee_pitch_r",
                     "ankle_pitch_r",
+                    "hip_pitch_l",
+                    "hip_yaw_l",
+                    "hip_roll_l",
+                    "knee_pitch_l",
+                    "ankle_pitch_l",
                 )
             )
+
+    def test_expected_dof_order_matches_bruce_urdf(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        urdf_path = repo_root / "resources" / "robots" / "bruce" / "bruce.urdf"
+        root = ET.parse(urdf_path).getroot()
+        movable_joint_names = [
+            joint.attrib["name"]
+            for joint in root.findall("joint")
+            if joint.attrib.get("type") != "fixed"
+        ]
+
+        self.assertEqual(tuple(movable_joint_names[:10]), BRUCE_EXPECTED_DOF_NAMES)
 
 
 if __name__ == "__main__":
