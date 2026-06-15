@@ -329,8 +329,6 @@ class BruceWalkFreeEnv(LeggedRobot):
         
         diff = self.dof_pos - self.ref_dof_pos
 
-        self.cost1_buf = torch.sum(torch.abs(self.torques * self.dof_vel),dim=1)
-
         self.privileged_obs_buf = torch.cat((
             self.command_input,  # 2 + 3
             q, # 10

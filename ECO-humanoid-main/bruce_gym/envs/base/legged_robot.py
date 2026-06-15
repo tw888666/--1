@@ -45,6 +45,14 @@ from bruce_gym.envs.base.base_task import BaseTask
 # from bruce_gym.utils.terrain import Terrain
 from bruce_gym.utils.math import quat_apply_yaw, wrap_to_pi, torch_rand_sqrt_float
 from bruce_gym.utils.helpers import class_to_dict
+from bruce_gym.rotor_energy import (
+    BRUCE_YAW_JOINT_INDICES,
+    LEGACY_JOINT_ABS_10,
+    SUPPORTED_ENERGY_COST_MODES,
+    compute_bruce_energy_terms,
+    energy_cost_from_terms,
+    make_bruce_transmission_tensors,
+)
 from .legged_robot_config import LeggedRobotCfg
 
 
@@ -100,14 +108,16 @@ class LeggedRobot(BaseTask):
 
         # step physics and render each frame
         self.render()
-        for _ in range(self.cfg.control.decimation):
-            self.torques = self._compute_torques(self.delayed_actions[:, _]).view(self.torques.shape)
+        self._reset_energy_buffers()
+        for decimation_step in range(self.cfg.control.decimation):
+            self.torques = self._compute_torques(self.delayed_actions[:, decimation_step]).view(self.torques.shape)
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
 
             self.gym.simulate(self.sim)
             if self.device == 'cpu':
                 self.gym.fetch_results(self.sim, True)
             self.gym.refresh_dof_state_tensor(self.sim)
+            self._accumulate_energy_cost_substep()
 
 
         if hasattr(self.cfg.normalization, 'filter_weight'):
@@ -137,6 +147,90 @@ class LeggedRobot(BaseTask):
             cost_list.append(getattr(self, f"cost{i+1}_buf"))
         
         return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras, cost_list
+
+    def _init_energy_buffers(self):
+        self.energy_cost_mode = getattr(
+            self.cfg.env, "energy_cost_mode", LEGACY_JOINT_ABS_10
+        )
+        if self.energy_cost_mode not in SUPPORTED_ENERGY_COST_MODES:
+            raise ValueError(
+                f"Unsupported energy_cost_mode '{self.energy_cost_mode}'. "
+                f"Supported modes are: {SUPPORTED_ENERGY_COST_MODES}"
+            )
+        self.energy_sim_dt = float(getattr(self.cfg.env, "energy_sim_dt", self.sim_params.dt))
+        self.koala_gear_ratio = float(getattr(self.cfg.env, "koala_gear_ratio", 9.0))
+        self._bruce_transmission = make_bruce_transmission_tensors(
+            self.torques.device, self.torques.dtype, self.koala_gear_ratio
+        )
+
+        self.cost1_buf = torch.zeros(
+            self.num_envs, dtype=torch.float, device=self.device, requires_grad=False
+        )
+        self.rotor_output_torque = torch.zeros(
+            self.num_envs, 8, dtype=torch.float, device=self.device, requires_grad=False
+        )
+        self.rotor_output_velocity = torch.zeros_like(self.rotor_output_torque)
+        self.rotor_torque = torch.zeros_like(self.rotor_output_torque)
+        self.rotor_velocity = torch.zeros_like(self.rotor_output_torque)
+        self.rotor_power = torch.zeros_like(self.rotor_output_torque)
+        self.rotor_drive_energy_per_motor = torch.zeros_like(self.rotor_output_torque)
+        self.rotor_brake_energy_per_motor = torch.zeros_like(self.rotor_output_torque)
+        self.rotor_drive_energy = torch.zeros_like(self.cost1_buf)
+        self.rotor_brake_energy = torch.zeros_like(self.cost1_buf)
+        self.yaw_joint_power = torch.zeros(
+            self.num_envs, len(BRUCE_YAW_JOINT_INDICES),
+            dtype=torch.float, device=self.device, requires_grad=False
+        )
+        self.yaw_joint_drive_energy = torch.zeros_like(self.yaw_joint_power)
+        self.yaw_joint_brake_energy = torch.zeros_like(self.yaw_joint_power)
+
+    def _reset_energy_buffers(self):
+        if self.env_cost_num < 1:
+            return
+        self.cost1_buf.zero_()
+        self.rotor_drive_energy_per_motor.zero_()
+        self.rotor_brake_energy_per_motor.zero_()
+        self.rotor_drive_energy.zero_()
+        self.rotor_brake_energy.zero_()
+        self.yaw_joint_drive_energy.zero_()
+        self.yaw_joint_brake_energy.zero_()
+
+    def _accumulate_energy_cost_substep(self):
+        if self.env_cost_num < 1:
+            return
+
+        joint_velocities = self.dof_vel[:, :self.num_actions]
+
+        if self.energy_cost_mode == LEGACY_JOINT_ABS_10:
+            self.cost1_buf[:] = torch.sum(
+                torch.abs(self.torques * joint_velocities), dim=1
+            )
+            return
+
+        terms = compute_bruce_energy_terms(
+            self.torques,
+            joint_velocities,
+            self.energy_sim_dt,
+            transmission=self._bruce_transmission,
+            gear_ratio=self.koala_gear_ratio,
+        )
+        self.cost1_buf += energy_cost_from_terms(terms, self.energy_cost_mode)
+
+        self.rotor_output_torque[:] = terms["output_torque"]
+        self.rotor_output_velocity[:] = terms["output_velocity"]
+        self.rotor_torque[:] = terms["rotor_torque"]
+        self.rotor_velocity[:] = terms["rotor_velocity"]
+        self.rotor_power[:] = terms["rotor_power"]
+        self.rotor_drive_energy_per_motor += terms["rotor_drive_energy_per_motor"]
+        self.rotor_brake_energy_per_motor += terms["rotor_brake_energy_per_motor"]
+        self.rotor_drive_energy[:] = self.rotor_drive_energy_per_motor.sum(dim=-1)
+        self.rotor_brake_energy[:] = self.rotor_brake_energy_per_motor.sum(dim=-1)
+        self.yaw_joint_power[:] = terms["yaw_power"]
+        dt = torch.as_tensor(
+            self.energy_sim_dt, device=self.device, dtype=self.yaw_joint_power.dtype
+        )
+        self.yaw_joint_drive_energy += torch.clamp(self.yaw_joint_power, min=0.0) * dt
+        self.yaw_joint_brake_energy += torch.clamp(-self.yaw_joint_power, min=0.0) * dt
 
 
     def reset(self):
@@ -713,6 +807,7 @@ class LeggedRobot(BaseTask):
         self.restitution_coeffs = torch.zeros(self.num_envs, 1, dtype=torch.float, device=self.device, requires_grad=False)
         self.joint_friction_coeffs = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.joint_armature_coeffs = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
+        self._init_energy_buffers()
 
     def _prepare_reward_function(self):
         """ Prepares a list of reward functions, which will be called to compute the total reward.

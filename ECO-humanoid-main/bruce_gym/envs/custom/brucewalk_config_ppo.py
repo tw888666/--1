@@ -52,6 +52,8 @@ class BruceWalkShapingCfg(LeggedRobotCfg):
         cost_limit1 = 6000
         cost_limit2 = 0.05
         env_cost_num = 1
+        energy_cost_mode = "rotor_positive_8"
+        koala_gear_ratio = 9.0
 
     class safety:
         # safety factors
@@ -384,4 +386,3 @@ class BruceWalkShapingCfgPPO(LeggedRobotCfgPPO):
         checkpoint = -1  # -1 = last saved model
         resume_path = None  # updated from load_run and chkpt
         save_config = 'brucewalk_config_ppo.py'
-
