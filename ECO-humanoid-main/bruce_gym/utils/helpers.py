@@ -297,6 +297,35 @@ def get_args():
             "type": str,
             "help": f"Energy cost mode. Supported: {SUPPORTED_ENERGY_COST_MODES}.",
         },
+        {
+            "name": "--num_eval_episodes",
+            "type": int,
+            "default": 20,
+            "help": "Number of evaluation episodes.",
+        },
+        {
+            "name": "--command_x",
+            "type": float,
+            "default": 0.1,
+            "help": "Fixed evaluation command in x velocity.",
+        },
+        {
+            "name": "--command_y",
+            "type": float,
+            "default": 0.0,
+            "help": "Fixed evaluation command in y velocity.",
+        },
+        {
+            "name": "--command_yaw",
+            "type": float,
+            "default": 0.0,
+            "help": "Fixed evaluation command in yaw velocity.",
+        },
+        {
+            "name": "--output_dir",
+            "type": str,
+            "help": "Directory for evaluation CSV and metadata outputs.",
+        },
     ]
     # parse arguments
     args = gymutil.parse_arguments(

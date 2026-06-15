@@ -49,6 +49,7 @@ from bruce_gym.rotor_energy import (
     BRUCE_YAW_JOINT_INDICES,
     LEGACY_JOINT_ABS_10,
     SUPPORTED_ENERGY_COST_MODES,
+    assert_bruce_dof_order,
     compute_bruce_energy_terms,
     energy_cost_from_terms,
     make_bruce_transmission_tensors,
@@ -157,6 +158,8 @@ class LeggedRobot(BaseTask):
                 f"Unsupported energy_cost_mode '{self.energy_cost_mode}'. "
                 f"Supported modes are: {SUPPORTED_ENERGY_COST_MODES}"
             )
+        if getattr(self.cfg.asset, "name", None) == "bruce":
+            assert_bruce_dof_order(self.dof_names)
         self.energy_sim_dt = float(getattr(self.cfg.env, "energy_sim_dt", self.sim_params.dt))
         self.koala_gear_ratio = float(getattr(self.cfg.env, "koala_gear_ratio", 9.0))
         self._bruce_transmission = make_bruce_transmission_tensors(
@@ -177,6 +180,13 @@ class LeggedRobot(BaseTask):
         self.rotor_brake_energy_per_motor = torch.zeros_like(self.rotor_output_torque)
         self.rotor_drive_energy = torch.zeros_like(self.cost1_buf)
         self.rotor_brake_energy = torch.zeros_like(self.cost1_buf)
+        self.joint_power = torch.zeros(
+            self.num_envs, 10, dtype=torch.float, device=self.device, requires_grad=False
+        )
+        self.joint_drive_energy_per_joint = torch.zeros_like(self.joint_power)
+        self.joint_brake_energy_per_joint = torch.zeros_like(self.joint_power)
+        self.joint_drive_energy = torch.zeros_like(self.cost1_buf)
+        self.joint_brake_energy = torch.zeros_like(self.cost1_buf)
         self.yaw_joint_power = torch.zeros(
             self.num_envs, len(BRUCE_YAW_JOINT_INDICES),
             dtype=torch.float, device=self.device, requires_grad=False
@@ -192,6 +202,10 @@ class LeggedRobot(BaseTask):
         self.rotor_brake_energy_per_motor.zero_()
         self.rotor_drive_energy.zero_()
         self.rotor_brake_energy.zero_()
+        self.joint_drive_energy_per_joint.zero_()
+        self.joint_brake_energy_per_joint.zero_()
+        self.joint_drive_energy.zero_()
+        self.joint_brake_energy.zero_()
         self.yaw_joint_drive_energy.zero_()
         self.yaw_joint_brake_energy.zero_()
 
@@ -201,12 +215,6 @@ class LeggedRobot(BaseTask):
 
         joint_velocities = self.dof_vel[:, :self.num_actions]
 
-        if self.energy_cost_mode == LEGACY_JOINT_ABS_10:
-            self.cost1_buf[:] = torch.sum(
-                torch.abs(self.torques * joint_velocities), dim=1
-            )
-            return
-
         terms = compute_bruce_energy_terms(
             self.torques,
             joint_velocities,
@@ -214,7 +222,10 @@ class LeggedRobot(BaseTask):
             transmission=self._bruce_transmission,
             gear_ratio=self.koala_gear_ratio,
         )
-        self.cost1_buf += energy_cost_from_terms(terms, self.energy_cost_mode)
+        if self.energy_cost_mode == LEGACY_JOINT_ABS_10:
+            self.cost1_buf[:] = energy_cost_from_terms(terms, self.energy_cost_mode)
+        else:
+            self.cost1_buf += energy_cost_from_terms(terms, self.energy_cost_mode)
 
         self.rotor_output_torque[:] = terms["output_torque"]
         self.rotor_output_velocity[:] = terms["output_velocity"]
@@ -225,6 +236,11 @@ class LeggedRobot(BaseTask):
         self.rotor_brake_energy_per_motor += terms["rotor_brake_energy_per_motor"]
         self.rotor_drive_energy[:] = self.rotor_drive_energy_per_motor.sum(dim=-1)
         self.rotor_brake_energy[:] = self.rotor_brake_energy_per_motor.sum(dim=-1)
+        self.joint_power[:] = terms["joint_power_all"]
+        self.joint_drive_energy_per_joint += terms["joint_drive_energy_per_joint"]
+        self.joint_brake_energy_per_joint += terms["joint_brake_energy_per_joint"]
+        self.joint_drive_energy[:] = self.joint_drive_energy_per_joint.sum(dim=-1)
+        self.joint_brake_energy[:] = self.joint_brake_energy_per_joint.sum(dim=-1)
         self.yaw_joint_power[:] = terms["yaw_power"]
         dt = torch.as_tensor(
             self.energy_sim_dt, device=self.device, dtype=self.yaw_joint_power.dtype

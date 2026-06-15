@@ -9,6 +9,18 @@ import torch
 
 BRUCE_DRIVE_JOINT_INDICES = (1, 2, 3, 4, 6, 7, 8, 9)
 BRUCE_YAW_JOINT_INDICES = (0, 5)
+BRUCE_EXPECTED_DOF_NAMES = (
+    "hip_yaw_l",
+    "hip_pitch_l",
+    "hip_roll_l",
+    "knee_pitch_l",
+    "ankle_pitch_l",
+    "hip_yaw_r",
+    "hip_pitch_r",
+    "hip_roll_r",
+    "knee_pitch_r",
+    "ankle_pitch_r",
+)
 
 BRUCE_ROTOR_NAMES = (
     "left_hip_motor_0",
@@ -59,6 +71,17 @@ def make_bruce_transmission_tensors(
 def _select_last_dim(values: torch.Tensor, indices) -> torch.Tensor:
     index = torch.tensor(indices, device=values.device, dtype=torch.long)
     return values.index_select(-1, index)
+
+
+def assert_bruce_dof_order(dof_names) -> None:
+    actual = tuple(dof_names[: len(BRUCE_EXPECTED_DOF_NAMES)])
+    if actual != BRUCE_EXPECTED_DOF_NAMES:
+        expected_text = ", ".join(BRUCE_EXPECTED_DOF_NAMES)
+        actual_text = ", ".join(actual)
+        raise ValueError(
+            "Unexpected BRUCE DOF order for rotor energy mapping. "
+            f"Expected [{expected_text}], got [{actual_text}]."
+        )
 
 
 def _map_pair(
@@ -135,7 +158,7 @@ def compute_bruce_energy_terms(
     )
 
     joint_power_all = joint_torques[..., :10] * joint_velocities[..., :10]
-    joint_power_drive = (
+    drive_joint_power = (
         _select_last_dim(joint_torques, BRUCE_DRIVE_JOINT_INDICES)
         * _select_last_dim(joint_velocities, BRUCE_DRIVE_JOINT_INDICES)
     )
@@ -148,13 +171,15 @@ def compute_bruce_energy_terms(
     rotor_power = rotor["rotor_power"]
     rotor_drive_energy_per_motor = torch.clamp(rotor_power, min=0.0) * dt
     rotor_brake_energy_per_motor = torch.clamp(-rotor_power, min=0.0) * dt
-    joint_drive_energy_per_joint = torch.clamp(joint_power_drive, min=0.0) * dt
-    joint_brake_energy_per_joint = torch.clamp(-joint_power_drive, min=0.0) * dt
+    joint_drive_energy_per_joint = torch.clamp(joint_power_all, min=0.0) * dt
+    joint_brake_energy_per_joint = torch.clamp(-joint_power_all, min=0.0) * dt
+    drive_joint_drive_energy_per_joint = torch.clamp(drive_joint_power, min=0.0) * dt
+    drive_joint_brake_energy_per_joint = torch.clamp(-drive_joint_power, min=0.0) * dt
 
     terms = {
         **rotor,
         "joint_power_all": joint_power_all,
-        "joint_power_drive": joint_power_drive,
+        "drive_joint_power": drive_joint_power,
         "yaw_power": yaw_power,
         "rotor_drive_energy_per_motor": rotor_drive_energy_per_motor,
         "rotor_brake_energy_per_motor": rotor_brake_energy_per_motor,
@@ -164,9 +189,16 @@ def compute_bruce_energy_terms(
         "joint_brake_energy_per_joint": joint_brake_energy_per_joint,
         "joint_drive_energy": joint_drive_energy_per_joint.sum(dim=-1),
         "joint_brake_energy": joint_brake_energy_per_joint.sum(dim=-1),
+        "drive_joint_drive_energy_per_joint": drive_joint_drive_energy_per_joint,
+        "drive_joint_brake_energy_per_joint": drive_joint_brake_energy_per_joint,
+        "drive_joint_drive_energy": drive_joint_drive_energy_per_joint.sum(dim=-1),
+        "drive_joint_brake_energy": drive_joint_brake_energy_per_joint.sum(dim=-1),
         "legacy_joint_abs_10_cost": torch.abs(joint_power_all).sum(dim=-1),
     }
     terms["joint_abs_energy"] = terms["joint_drive_energy"] + terms["joint_brake_energy"]
+    terms["drive_joint_abs_energy"] = (
+        terms["drive_joint_drive_energy"] + terms["drive_joint_brake_energy"]
+    )
     terms["rotor_abs_energy"] = terms["rotor_drive_energy"] + terms["rotor_brake_energy"]
     return terms
 
@@ -175,9 +207,9 @@ def energy_cost_from_terms(terms: Dict[str, torch.Tensor], mode: str) -> torch.T
     if mode == LEGACY_JOINT_ABS_10:
         return terms["legacy_joint_abs_10_cost"]
     if mode == JOINT_ABS_8:
-        return terms["joint_abs_energy"]
+        return terms["drive_joint_abs_energy"]
     if mode == JOINT_POSITIVE_8:
-        return terms["joint_drive_energy"]
+        return terms["drive_joint_drive_energy"]
     if mode == ROTOR_ABS_8:
         return terms["rotor_abs_energy"]
     if mode == ROTOR_POSITIVE_8:

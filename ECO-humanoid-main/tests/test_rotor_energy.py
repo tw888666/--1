@@ -4,11 +4,13 @@ import torch
 
 from bruce_gym.rotor_energy import (
     BRUCE_DRIVE_JOINT_INDICES,
+    BRUCE_EXPECTED_DOF_NAMES,
     JOINT_ABS_8,
     JOINT_POSITIVE_8,
     LEGACY_JOINT_ABS_10,
     ROTOR_ABS_8,
     ROTOR_POSITIVE_8,
+    assert_bruce_dof_order,
     compute_bruce_energy_terms,
     compute_bruce_rotor_power,
     energy_cost_from_terms,
@@ -111,6 +113,78 @@ class BruceRotorEnergyTest(unittest.TestCase):
         self.assertTrue(torch.allclose(energy_cost_from_terms(terms, JOINT_POSITIVE_8), joint_positive))
         self.assertTrue(torch.allclose(energy_cost_from_terms(terms, ROTOR_ABS_8), rotor_abs))
         self.assertTrue(torch.allclose(energy_cost_from_terms(terms, ROTOR_POSITIVE_8), terms["rotor_drive_energy"]))
+
+    def test_all_ten_joint_energies_are_reported(self):
+        torques = torch.tensor(
+            [[1.0, -2.0, 3.0, -4.0, 5.0, -6.0, 7.0, -8.0, 9.0, -10.0]],
+            dtype=self.dtype,
+        )
+        velocities = torch.tensor(
+            [[0.5, 0.25, -0.5, 0.75, -1.0, 1.25, -1.5, 1.75, -2.0, 2.25]],
+            dtype=self.dtype,
+        )
+        dt = 0.001
+        terms = compute_bruce_energy_terms(
+            torques, velocities, sim_dt=dt, transmission=self.transmission
+        )
+        joint_power = torques * velocities
+
+        self.assertEqual(terms["joint_drive_energy_per_joint"].shape[-1], 10)
+        self.assertEqual(terms["joint_brake_energy_per_joint"].shape[-1], 10)
+        self.assertEqual(terms["drive_joint_drive_energy_per_joint"].shape[-1], 8)
+        self.assertTrue(
+            torch.allclose(
+                terms["joint_drive_energy_per_joint"],
+                torch.clamp(joint_power, min=0.0) * dt,
+            )
+        )
+        self.assertTrue(
+            torch.allclose(
+                terms["joint_brake_energy_per_joint"],
+                torch.clamp(-joint_power, min=0.0) * dt,
+            )
+        )
+
+    def test_joint_positive_negative_energy_reconstructs_power_integral(self):
+        torques = torch.tensor([[1.0, -2.0, 3.0, -4.0, 5.0, -6.0, 7.0, -8.0, 9.0, -10.0]], dtype=self.dtype)
+        velocities = torch.tensor([[0.5, 0.25, -0.5, 0.75, -1.0, 1.25, -1.5, 1.75, -2.0, 2.25]], dtype=self.dtype)
+        dt = 0.001
+        terms = compute_bruce_energy_terms(
+            torques, velocities, sim_dt=dt, transmission=self.transmission
+        )
+        signed_integral = (torques * velocities).sum(dim=-1) * dt
+        abs_integral = torch.abs(torques * velocities).sum(dim=-1) * dt
+
+        self.assertTrue(
+            torch.allclose(
+                terms["joint_drive_energy"] + terms["joint_brake_energy"],
+                abs_integral,
+            )
+        )
+        self.assertTrue(
+            torch.allclose(
+                terms["joint_drive_energy"] - terms["joint_brake_energy"],
+                signed_integral,
+            )
+        )
+
+    def test_bruce_dof_order_assertion(self):
+        assert_bruce_dof_order(BRUCE_EXPECTED_DOF_NAMES)
+        with self.assertRaises(ValueError):
+            assert_bruce_dof_order(
+                (
+                    "hip_pitch_l",
+                    "hip_yaw_l",
+                    "hip_roll_l",
+                    "knee_pitch_l",
+                    "ankle_pitch_l",
+                    "hip_yaw_r",
+                    "hip_pitch_r",
+                    "hip_roll_r",
+                    "knee_pitch_r",
+                    "ankle_pitch_r",
+                )
+            )
 
 
 if __name__ == "__main__":
