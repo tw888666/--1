@@ -128,6 +128,7 @@ def _pre_step_state(env, robot_index, left_foot_idx, right_foot_idx):
     left_contact = bool((foot_force_z[left_foot_idx] > 5.0).item())
     right_contact = bool((foot_force_z[right_foot_idx] > 5.0).item())
     base_vel = _tensor_list(env.base_lin_vel[robot_index])
+    root_pos = _tensor_list(env.root_states[robot_index, :3])
     return {
         "gait_phase": _to_float(torch.remainder(env._get_phase()[robot_index], 1.0)),
         "phase_label": _phase_label(left_contact, right_contact),
@@ -138,6 +139,9 @@ def _pre_step_state(env, robot_index, left_foot_idx, right_foot_idx):
         "pre_step_base_vel_x": base_vel[0],
         "pre_step_base_vel_y": base_vel[1],
         "pre_step_base_vel_z": base_vel[2],
+        "pre_step_root_pos_x": root_pos[0],
+        "pre_step_root_pos_y": root_pos[1],
+        "pre_step_root_pos_z": root_pos[2],
         "base_vel_x": base_vel[0],
         "base_vel_y": base_vel[1],
         "base_vel_z": base_vel[2],
@@ -172,6 +176,8 @@ def _new_episode_accumulator():
     return {
         "steps": 0,
         "distance_x": 0.0,
+        "path_length_xy": 0.0,
+        "body_frame_distance_x": 0.0,
         "rotor_pos": [0.0] * len(BRUCE_ROTOR_NAMES),
         "rotor_neg": [0.0] * len(BRUCE_ROTOR_NAMES),
         "yaw_pos": [0.0, 0.0],
@@ -181,10 +187,21 @@ def _new_episode_accumulator():
     }
 
 
-def _accumulate_episode(acc, snapshot, base_vel_x, dt):
+def _accumulate_episode(acc, snapshot, pre_step_state, post_step_root_pos, dt):
+    world_dx = post_step_root_pos[0] - pre_step_state["pre_step_root_pos_x"]
+    world_dy = post_step_root_pos[1] - pre_step_state["pre_step_root_pos_y"]
     acc["steps"] += 1
-    acc["distance_x"] += base_vel_x * dt
-    for key in ("rotor_pos", "rotor_neg", "yaw_pos", "yaw_neg", "joint_pos", "joint_neg"):
+    acc["distance_x"] += world_dx
+    acc["path_length_xy"] += (world_dx * world_dx + world_dy * world_dy) ** 0.5
+    acc["body_frame_distance_x"] += pre_step_state["pre_step_base_vel_x"] * dt
+    for key in (
+        "rotor_pos",
+        "rotor_neg",
+        "yaw_pos",
+        "yaw_neg",
+        "joint_pos",
+        "joint_neg",
+    ):
         for idx, value in enumerate(snapshot[key]):
             acc[key][idx] += value
 
@@ -200,6 +217,11 @@ def _episode_summary_row(episode_id, acc, timeout, dt):
         "duration_s": duration_s,
         "distance_x": acc["distance_x"],
         "mean_velocity_x": acc["distance_x"] / max(duration_s, 1e-8),
+        "path_length_xy": acc["path_length_xy"],
+        "mean_path_velocity_xy": acc["path_length_xy"] / max(duration_s, 1e-8),
+        "body_frame_distance_x": acc["body_frame_distance_x"],
+        "mean_body_frame_velocity_x": acc["body_frame_distance_x"]
+        / max(duration_s, 1e-8),
         "rotor_positive_energy_8": sum(acc["rotor_pos"]),
         "rotor_negative_energy_8": sum(acc["rotor_neg"]),
         "yaw_positive_energy_2": sum(acc["yaw_pos"]),
@@ -352,6 +374,11 @@ def evaluate(args):
         "rotor_names": list(BRUCE_ROTOR_NAMES),
         "joint_names": list(JOINT_NAMES),
         "state_rows_sample": "pre_step",
+        "valid_state_semantics": "pre_step_state_valid",
+        "distance_x_source": "world_root_position_delta_x",
+        "path_length_xy_source": "world_root_position_delta_xy",
+        "instantaneous_motor_fields_sample": "last_physics_substep",
+        "phase_summary_energy_source": "integrated_policy_step_energy",
     }
 
     step_rows = []
@@ -375,10 +402,18 @@ def evaluate(args):
 
             done = bool(dones[robot_index].item())
             timeout = bool(env.time_out_buf[robot_index].item())
-            valid_state = not done
+            pre_step_state_valid = True
+            post_step_state_valid = not done
+            post_step_root_pos = _tensor_list(
+                env.pre_reset_root_states[robot_index, :3]
+            )
+            world_dx = post_step_root_pos[0] - pre_step_state["pre_step_root_pos_x"]
+            world_dy = post_step_root_pos[1] - pre_step_state["pre_step_root_pos_y"]
+            world_dz = post_step_root_pos[2] - pre_step_state["pre_step_root_pos_z"]
+            world_path_xy = (world_dx * world_dx + world_dy * world_dy) ** 0.5
             snapshot = _step_energy_snapshot(env, robot_index)
             _accumulate_episode(
-                episode_acc, snapshot, pre_step_state["pre_step_base_vel_x"], env.dt
+                episode_acc, snapshot, pre_step_state, post_step_root_pos, env.dt
             )
             _record_phase(episode_phase_acc, pre_step_state["phase_label"], snapshot)
 
@@ -388,7 +423,9 @@ def evaluate(args):
                 "episode_step": episode_step,
                 "done": float(done),
                 "timeout": float(timeout),
-                "valid_state": float(valid_state),
+                "valid_state": float(pre_step_state_valid),
+                "pre_step_state_valid": float(pre_step_state_valid),
+                "post_step_state_valid": float(post_step_state_valid),
                 "cost1": _to_float(costs[0][robot_index]),
                 "command_x": args.command_x,
                 "command_y": args.command_y,
@@ -399,6 +436,14 @@ def evaluate(args):
                 "yaw_negative_energy_2": snapshot["yaw_neg_total"],
                 "joint_positive_energy_10": snapshot["joint_pos_total"],
                 "joint_negative_energy_10": snapshot["joint_neg_total"],
+                "post_step_root_pos_x": post_step_root_pos[0],
+                "post_step_root_pos_y": post_step_root_pos[1],
+                "post_step_root_pos_z": post_step_root_pos[2],
+                "step_world_delta_x": world_dx,
+                "step_world_delta_y": world_dy,
+                "step_world_delta_z": world_dz,
+                "step_world_path_xy": world_path_xy,
+                "body_frame_delta_x": pre_step_state["pre_step_base_vel_x"] * env.dt,
             }
             row.update(pre_step_state)
             _add_motor_fields(row, "positive_energy", snapshot["rotor_pos"])
@@ -412,7 +457,7 @@ def evaluate(args):
             _add_joint_fields(row, "negative_energy", snapshot["joint_neg"])
             _add_joint_fields(row, "power", _tensor_list(env.joint_power[robot_index]))
 
-            if valid_state:
+            if post_step_state_valid:
                 row.update(
                     {
                         "post_step_base_vel_x": _to_float(
