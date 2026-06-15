@@ -169,6 +169,8 @@ def play(args):
             env.num_envs, dtype=torch.float, device=env.device
         )
         lin_vel_x_sum = 0
+        episode_id = 0
+        episode_step = 0
         for step_env in range(stop_state_log):
             actions = policy(obs.detach())
             if FIX_COMMAND:
@@ -183,6 +185,7 @@ def play(args):
 
             cost_value = cost[0][robot_index].item() if isinstance(cost, list) else cost[robot_index].item()
             cost_sum += cost_value
+            done = bool(dones[robot_index].item())
             lin_vel_x = env.base_lin_vel[robot_index, 0].item()
             lin_vel_x_sum += lin_vel_x
             if step_env%500 == 0:
@@ -267,6 +270,9 @@ def play(args):
                     'command_x': env.commands[robot_index, 0].item(),
                     'command_y': env.commands[robot_index, 1].item(),
                     'command_yaw': env.commands[robot_index, 2].item(),
+                    'episode_id': episode_id,
+                    'episode_step': episode_step,
+                    'done': float(done),
                     'gait_phase': gait_phase,
                     'left_contact_state': foot_contact[0].float().item(),
                     'right_contact_state': foot_contact[1].float().item(),
@@ -338,6 +344,10 @@ def play(args):
                 csv_writer.writerow(csv_header)
             csv_writer.writerow([csv_row.get(key, "") for key in csv_header])
             logger.log_states(log_dict)
+            episode_step += 1
+            if done:
+                episode_id += 1
+                episode_step = 0
 
             # ====================== Log states ======================
             if infos["episode"]:

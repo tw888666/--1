@@ -39,6 +39,7 @@ from isaacgym import gymapi
 from isaacgym import gymutil
 
 from bruce_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
+from bruce_gym.rotor_energy import SUPPORTED_ENERGY_COST_MODES
 
 
 def class_to_dict(obj) -> dict:
@@ -143,7 +144,16 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
             env_cfg.seed = args.seed
         if args.cost_limit1 is not None:
             env_cfg.env.cost_limit1 = args.cost_limit1
+        if args.energy_cost_mode is not None:
+            if args.energy_cost_mode not in SUPPORTED_ENERGY_COST_MODES:
+                raise ValueError(
+                    f"Unsupported energy_cost_mode '{args.energy_cost_mode}'. "
+                    f"Supported modes are: {SUPPORTED_ENERGY_COST_MODES}"
+                )
+            env_cfg.env.energy_cost_mode = args.energy_cost_mode
     if cfg_train is not None:
+        if args.cost_limit1 is not None:
+            cfg_train.algorithm.cost_limit1 = args.cost_limit1
         if args.lambda_lr1 is not None :
             cfg_train.algorithm.lambda_lr1 = args.lambda_lr1
         if args.ipo_kappa1 is not None:
@@ -281,6 +291,11 @@ def get_args():
             "name": "--cost_limit1",
             "type": float,
             "help": "cost limit1.",
+        },
+        {
+            "name": "--energy_cost_mode",
+            "type": str,
+            "help": f"Energy cost mode. Supported: {SUPPORTED_ENERGY_COST_MODES}.",
         },
     ]
     # parse arguments
