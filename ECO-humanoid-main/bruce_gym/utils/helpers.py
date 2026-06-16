@@ -210,6 +210,18 @@ def get_args():
             "help": "Resume training from a checkpoint",
         },
         {
+            "name": "--reset_optimizer_on_resume",
+            "action": "store_true",
+            "default": False,
+            "help": "When resuming, load model weights but reset optimizer states.",
+        },
+        {
+            "name": "--reset_lagrange_on_resume",
+            "action": "store_true",
+            "default": False,
+            "help": "When resuming, load model weights but reset Lagrange multipliers.",
+        },
+        {
             "name": "--experiment_name",
             "type": str,
             "help": "Name of the experiment to run or load. Overrides config file if provided.",

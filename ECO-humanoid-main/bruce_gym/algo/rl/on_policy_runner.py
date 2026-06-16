@@ -543,13 +543,14 @@ class OnPolicyRunner:
                 elif legacy_optimizer_key in loaded_dict:
                     lagrange_obj.lambda_optimizer.load_state_dict(loaded_dict[legacy_optimizer_key])
 
-    def load(self, path, load_optimizer=True):
+    def load(self, path, load_optimizer=True, load_lagrange=True):
         loaded_dict = torch.load(path, map_location=self.device)
         self.alg.actor_critic.load_state_dict(loaded_dict["model_state_dict"])
         if load_optimizer:
             self.alg.optimizer.load_state_dict(loaded_dict["optimizer_state_dict"])
             self.alg.cost_value_optimizer.load_state_dict(loaded_dict["cost_value_optimizer_state_dict"])
-        self._load_lagrange_states(loaded_dict, load_optimizer=load_optimizer)
+        if load_lagrange:
+            self._load_lagrange_states(loaded_dict, load_optimizer=load_optimizer)
         if "total_time" in loaded_dict:
             self.tot_time = loaded_dict["total_time"]
         if "iter" in loaded_dict:
