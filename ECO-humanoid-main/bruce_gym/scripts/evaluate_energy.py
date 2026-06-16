@@ -346,7 +346,7 @@ def evaluate(args):
             f"Supported modes are: {SUPPORTED_ENERGY_COST_MODES}"
         )
 
-    output_dir = args.output_dir or _default_output_dir(args)
+    output_dir = os.path.abspath(args.output_dir or _default_output_dir(args))
     os.makedirs(output_dir, exist_ok=True)
 
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
@@ -537,6 +537,7 @@ def evaluate(args):
                 f"{args.num_eval_episodes} episodes."
             )
 
+    os.makedirs(output_dir, exist_ok=True)
     with open(os.path.join(output_dir, "metadata.json"), "w") as jsonfile:
         json.dump(metadata, jsonfile, indent=2)
     _write_dicts_csv(os.path.join(output_dir, "episode_summary.csv"), episode_rows)
