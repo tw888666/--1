@@ -32,6 +32,7 @@
 
 import os
 import copy
+import subprocess
 import torch
 import numpy as np
 import random
@@ -81,6 +82,103 @@ def set_seed(seed):
     os.environ["PYTHONHASHSEED"] = str(seed)
     torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
+def _visible_cuda_device_ordinals():
+    visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if not visible_devices:
+        return None
+
+    physical_ids = []
+    for item in visible_devices.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if not item.isdigit():
+            raise RuntimeError(
+                "Auto GPU selection supports only numeric CUDA_VISIBLE_DEVICES "
+                f"entries, got: {visible_devices}"
+            )
+        physical_ids.append(int(item))
+
+    if not physical_ids:
+        return None
+    return {physical_id: ordinal for ordinal, physical_id in enumerate(physical_ids)}
+
+
+def _query_gpu_status():
+    query = "index,memory.total,memory.used,memory.free,utilization.gpu"
+    output = subprocess.check_output(
+        [
+            "nvidia-smi",
+            f"--query-gpu={query}",
+            "--format=csv,noheader,nounits",
+        ],
+        encoding="utf-8",
+        stderr=subprocess.STDOUT,
+    )
+
+    gpus = []
+    for line in output.splitlines():
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) != 5:
+            continue
+        try:
+            index, total, used, free, utilization = [int(float(part)) for part in parts]
+        except ValueError:
+            continue
+        gpus.append(
+            {
+                "index": index,
+                "memory_total_mb": total,
+                "memory_used_mb": used,
+                "memory_free_mb": free,
+                "utilization_gpu": utilization,
+            }
+        )
+
+    if not gpus:
+        raise RuntimeError("nvidia-smi returned no usable GPU status rows.")
+    return gpus
+
+
+def _select_idle_gpu(min_free_memory_mb=4096, max_utilization=20):
+    visible_ordinals = _visible_cuda_device_ordinals()
+    gpus = _query_gpu_status()
+    if visible_ordinals is not None:
+        gpus = [gpu for gpu in gpus if gpu["index"] in visible_ordinals]
+        if not gpus:
+            raise RuntimeError(
+                "No NVIDIA GPUs from nvidia-smi match CUDA_VISIBLE_DEVICES."
+            )
+
+    candidates = [
+        gpu
+        for gpu in gpus
+        if gpu["memory_free_mb"] >= min_free_memory_mb
+        and gpu["utilization_gpu"] <= max_utilization
+    ]
+    if not candidates:
+        candidates = gpus
+        print(
+            "No GPU met the idle thresholds; selecting the GPU with the most "
+            "free memory instead."
+        )
+
+    selected = max(
+        candidates,
+        key=lambda gpu: (
+            gpu["memory_free_mb"],
+            -gpu["utilization_gpu"],
+            gpu["memory_total_mb"],
+        ),
+    )
+    selected["cuda_device_id"] = (
+        visible_ordinals[selected["index"]]
+        if visible_ordinals is not None
+        else selected["index"]
+    )
+    return selected
 
 
 def parse_sim_params(args, cfg):
@@ -247,6 +345,24 @@ def get_args():
             "help": "Device used by the RL algorithm, (cpu, gpu, cuda:0, cuda:1 etc..)",
         },
         {
+            "name": "--auto_select_gpu",
+            "action": "store_true",
+            "default": False,
+            "help": "Automatically select an idle NVIDIA GPU for simulation and RL.",
+        },
+        {
+            "name": "--auto_gpu_min_free_memory_mb",
+            "type": int,
+            "default": 4096,
+            "help": "Minimum free GPU memory for automatic GPU selection.",
+        },
+        {
+            "name": "--auto_gpu_max_utilization",
+            "type": int,
+            "default": 20,
+            "help": "Maximum GPU utilization percentage for automatic GPU selection.",
+        },
+        {
             "name": "--num_envs",
             "type": int,
             "help": "Number of environments to create. Overrides config file if provided.",
@@ -341,11 +457,48 @@ def get_args():
             "default": False,
             "help": "Disable os._exit(0) after successful energy evaluation output.",
         },
+        {
+            "name": "--no_eval_progress",
+            "action": "store_true",
+            "default": False,
+            "help": "Disable progress output during energy evaluation.",
+        },
+        {
+            "name": "--eval_progress_interval",
+            "type": int,
+            "default": 50,
+            "help": "Refresh energy evaluation progress every N simulator steps.",
+        },
     ]
     # parse arguments
     args = gymutil.parse_arguments(
         description="RL Policy", custom_parameters=custom_parameters
     )
+
+    if args.auto_select_gpu:
+        try:
+            selected_gpu = _select_idle_gpu(
+                min_free_memory_mb=args.auto_gpu_min_free_memory_mb,
+                max_utilization=args.auto_gpu_max_utilization,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise RuntimeError(
+                "Failed to auto-select GPU because nvidia-smi is unavailable."
+            ) from exc
+
+        cuda_device_id = selected_gpu["cuda_device_id"]
+        if args.sim_device_type == "cuda":
+            args.compute_device_id = cuda_device_id
+        if str(args.rl_device).startswith("cuda"):
+            args.rl_device = f"cuda:{cuda_device_id}"
+
+        print(
+            "Auto-selected GPU "
+            f"{selected_gpu['index']} as cuda:{cuda_device_id} "
+            f"(free {selected_gpu['memory_free_mb']} MiB / "
+            f"{selected_gpu['memory_total_mb']} MiB, "
+            f"util {selected_gpu['utilization_gpu']}%)."
+        )
 
     # name allignment
     args.sim_device_id = args.compute_device_id

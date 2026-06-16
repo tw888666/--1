@@ -11,6 +11,7 @@ from collections import defaultdict
 
 import isaacgym  # noqa: F401
 import torch
+from tqdm import tqdm
 
 from bruce_gym import LEGGED_GYM_ROOT_DIR
 from bruce_gym.envs import *  # noqa: F401,F403
@@ -418,124 +419,168 @@ def evaluate(args):
     episode_step = 0
     robot_index = 0
     max_steps = int(args.num_eval_episodes * env.max_episode_length * 3)
+    progress_interval = max(1, getattr(args, "eval_progress_interval", 50))
+    progress = tqdm(
+        total=args.num_eval_episodes,
+        desc="Evaluating energy",
+        unit="episode",
+        dynamic_ncols=True,
+        disable=getattr(args, "no_eval_progress", False),
+        file=sys.stdout,
+    )
 
-    with torch.inference_mode():
-        for global_step in range(max_steps):
-            _set_fixed_command(env, args)
-            pre_step_state = _pre_step_state(
-                env, robot_index, left_foot_idx, right_foot_idx
-            )
-            actions = policy(obs.detach())
-            obs, _, _, dones, infos, costs = env.step(actions.detach())
+    try:
+        with torch.inference_mode():
+            for global_step in range(max_steps):
+                _set_fixed_command(env, args)
+                pre_step_state = _pre_step_state(
+                    env, robot_index, left_foot_idx, right_foot_idx
+                )
+                actions = policy(obs.detach())
+                obs, _, _, dones, infos, costs = env.step(actions.detach())
 
-            done = bool(dones[robot_index].item())
-            timeout = bool(env.time_out_buf[robot_index].item())
-            pre_step_state_valid = True
-            pre_step_dynamic_state_valid = episode_step > 0
-            post_step_state_valid = not done
-            post_step_root_pos = _tensor_list(
-                env.pre_reset_root_states[robot_index, :3]
-            )
-            world_dx = post_step_root_pos[0] - pre_step_state["pre_step_root_pos_x"]
-            world_dy = post_step_root_pos[1] - pre_step_state["pre_step_root_pos_y"]
-            world_dz = post_step_root_pos[2] - pre_step_state["pre_step_root_pos_z"]
-            world_path_xy = (world_dx * world_dx + world_dy * world_dy) ** 0.5
-            body_frame_delta_x = (
-                pre_step_state["pre_step_base_vel_x"] * env.dt
-                if pre_step_dynamic_state_valid
-                else 0.0
-            )
-            snapshot = _step_energy_snapshot(env, robot_index)
-            _accumulate_episode(
-                episode_acc,
-                snapshot,
-                pre_step_state,
-                post_step_root_pos,
-                pre_step_dynamic_state_valid,
-                env.dt,
-            )
-            if pre_step_dynamic_state_valid:
-                _record_phase(
-                    episode_phase_acc, pre_step_state["phase_label"], snapshot
+                done = bool(dones[robot_index].item())
+                timeout = bool(env.time_out_buf[robot_index].item())
+                pre_step_state_valid = True
+                pre_step_dynamic_state_valid = episode_step > 0
+                post_step_state_valid = not done
+                post_step_root_pos = _tensor_list(
+                    env.pre_reset_root_states[robot_index, :3]
+                )
+                world_dx = (
+                    post_step_root_pos[0] - pre_step_state["pre_step_root_pos_x"]
+                )
+                world_dy = (
+                    post_step_root_pos[1] - pre_step_state["pre_step_root_pos_y"]
+                )
+                world_dz = (
+                    post_step_root_pos[2] - pre_step_state["pre_step_root_pos_z"]
+                )
+                world_path_xy = (world_dx * world_dx + world_dy * world_dy) ** 0.5
+                body_frame_delta_x = (
+                    pre_step_state["pre_step_base_vel_x"] * env.dt
+                    if pre_step_dynamic_state_valid
+                    else 0.0
+                )
+                snapshot = _step_energy_snapshot(env, robot_index)
+                _accumulate_episode(
+                    episode_acc,
+                    snapshot,
+                    pre_step_state,
+                    post_step_root_pos,
+                    pre_step_dynamic_state_valid,
+                    env.dt,
+                )
+                if pre_step_dynamic_state_valid:
+                    _record_phase(
+                        episode_phase_acc, pre_step_state["phase_label"], snapshot
+                    )
+
+                row = {
+                    "global_step": global_step,
+                    "episode_id": episode_id,
+                    "episode_step": episode_step,
+                    "done": float(done),
+                    "timeout": float(timeout),
+                    "valid_state": float(pre_step_dynamic_state_valid),
+                    "pre_step_state_valid": float(pre_step_state_valid),
+                    "pre_step_dynamic_state_valid": float(
+                        pre_step_dynamic_state_valid
+                    ),
+                    "post_step_state_valid": float(post_step_state_valid),
+                    "cost1": _to_float(costs[0][robot_index]),
+                    "command_x": args.command_x,
+                    "command_y": args.command_y,
+                    "command_yaw": args.command_yaw,
+                    "rotor_positive_energy_8": snapshot["rotor_pos_total"],
+                    "rotor_negative_energy_8": snapshot["rotor_neg_total"],
+                    "yaw_positive_energy_2": snapshot["yaw_pos_total"],
+                    "yaw_negative_energy_2": snapshot["yaw_neg_total"],
+                    "joint_positive_energy_10": snapshot["joint_pos_total"],
+                    "joint_negative_energy_10": snapshot["joint_neg_total"],
+                    "post_step_root_pos_x": post_step_root_pos[0],
+                    "post_step_root_pos_y": post_step_root_pos[1],
+                    "post_step_root_pos_z": post_step_root_pos[2],
+                    "step_world_delta_x": world_dx,
+                    "step_world_delta_y": world_dy,
+                    "step_world_delta_z": world_dz,
+                    "step_world_path_xy": world_path_xy,
+                    "body_frame_delta_x": body_frame_delta_x,
+                }
+                row.update(pre_step_state)
+                _add_motor_fields(row, "positive_energy", snapshot["rotor_pos"])
+                _add_motor_fields(row, "negative_energy", snapshot["rotor_neg"])
+                _add_motor_fields(
+                    row, "power", _tensor_list(env.rotor_power[robot_index])
+                )
+                _add_motor_fields(
+                    row, "torque", _tensor_list(env.rotor_torque[robot_index])
+                )
+                _add_motor_fields(
+                    row, "velocity", _tensor_list(env.rotor_velocity[robot_index])
+                )
+                _add_joint_fields(row, "positive_energy", snapshot["joint_pos"])
+                _add_joint_fields(row, "negative_energy", snapshot["joint_neg"])
+                _add_joint_fields(
+                    row, "power", _tensor_list(env.joint_power[robot_index])
                 )
 
-            row = {
-                "global_step": global_step,
-                "episode_id": episode_id,
-                "episode_step": episode_step,
-                "done": float(done),
-                "timeout": float(timeout),
-                "valid_state": float(pre_step_dynamic_state_valid),
-                "pre_step_state_valid": float(pre_step_state_valid),
-                "pre_step_dynamic_state_valid": float(pre_step_dynamic_state_valid),
-                "post_step_state_valid": float(post_step_state_valid),
-                "cost1": _to_float(costs[0][robot_index]),
-                "command_x": args.command_x,
-                "command_y": args.command_y,
-                "command_yaw": args.command_yaw,
-                "rotor_positive_energy_8": snapshot["rotor_pos_total"],
-                "rotor_negative_energy_8": snapshot["rotor_neg_total"],
-                "yaw_positive_energy_2": snapshot["yaw_pos_total"],
-                "yaw_negative_energy_2": snapshot["yaw_neg_total"],
-                "joint_positive_energy_10": snapshot["joint_pos_total"],
-                "joint_negative_energy_10": snapshot["joint_neg_total"],
-                "post_step_root_pos_x": post_step_root_pos[0],
-                "post_step_root_pos_y": post_step_root_pos[1],
-                "post_step_root_pos_z": post_step_root_pos[2],
-                "step_world_delta_x": world_dx,
-                "step_world_delta_y": world_dy,
-                "step_world_delta_z": world_dz,
-                "step_world_path_xy": world_path_xy,
-                "body_frame_delta_x": body_frame_delta_x,
-            }
-            row.update(pre_step_state)
-            _add_motor_fields(row, "positive_energy", snapshot["rotor_pos"])
-            _add_motor_fields(row, "negative_energy", snapshot["rotor_neg"])
-            _add_motor_fields(row, "power", _tensor_list(env.rotor_power[robot_index]))
-            _add_motor_fields(row, "torque", _tensor_list(env.rotor_torque[robot_index]))
-            _add_motor_fields(
-                row, "velocity", _tensor_list(env.rotor_velocity[robot_index])
-            )
-            _add_joint_fields(row, "positive_energy", snapshot["joint_pos"])
-            _add_joint_fields(row, "negative_energy", snapshot["joint_neg"])
-            _add_joint_fields(row, "power", _tensor_list(env.joint_power[robot_index]))
+                if post_step_state_valid:
+                    row.update(
+                        {
+                            "post_step_base_vel_x": _to_float(
+                                env.base_lin_vel[robot_index, 0]
+                            ),
+                            "post_step_base_vel_y": _to_float(
+                                env.base_lin_vel[robot_index, 1]
+                            ),
+                            "post_step_base_vel_z": _to_float(
+                                env.base_lin_vel[robot_index, 2]
+                            ),
+                        }
+                    )
+                step_rows.append(row)
 
-            if post_step_state_valid:
-                row.update(
-                    {
-                        "post_step_base_vel_x": _to_float(
-                            env.base_lin_vel[robot_index, 0]
-                        ),
-                        "post_step_base_vel_y": _to_float(
-                            env.base_lin_vel[robot_index, 1]
-                        ),
-                        "post_step_base_vel_z": _to_float(
-                            env.base_lin_vel[robot_index, 2]
-                        ),
-                    }
+                episode_step += 1
+                if global_step % progress_interval == 0:
+                    progress.set_postfix(
+                        {
+                            "episode": f"{episode_id + 1}/{args.num_eval_episodes}",
+                            "episode_step": episode_step,
+                            "global_step": global_step,
+                        },
+                        refresh=True,
+                    )
+                if done:
+                    episode_outcome = "success" if timeout else "fall"
+                    episode_rows.append(
+                        _episode_summary_row(episode_id, episode_acc, timeout, env.dt)
+                    )
+                    _merge_phase_accumulators(
+                        phase_acc, episode_phase_acc, episode_outcome
+                    )
+                    progress.update(1)
+                    progress.set_postfix(
+                        {
+                            "last_outcome": episode_outcome,
+                            "episode_steps": episode_step,
+                            "global_step": global_step,
+                        },
+                        refresh=True,
+                    )
+                    episode_id += 1
+                    episode_step = 0
+                    episode_acc = _new_episode_accumulator()
+                    episode_phase_acc = _init_phase_accumulators()
+                    if episode_id >= args.num_eval_episodes:
+                        break
+            else:
+                raise RuntimeError(
+                    f"Evaluation stopped after {max_steps} steps before collecting "
+                    f"{args.num_eval_episodes} episodes."
                 )
-            step_rows.append(row)
-
-            episode_step += 1
-            if done:
-                episode_outcome = "success" if timeout else "fall"
-                episode_rows.append(
-                    _episode_summary_row(episode_id, episode_acc, timeout, env.dt)
-                )
-                _merge_phase_accumulators(
-                    phase_acc, episode_phase_acc, episode_outcome
-                )
-                episode_id += 1
-                episode_step = 0
-                episode_acc = _new_episode_accumulator()
-                episode_phase_acc = _init_phase_accumulators()
-                if episode_id >= args.num_eval_episodes:
-                    break
-        else:
-            raise RuntimeError(
-                f"Evaluation stopped after {max_steps} steps before collecting "
-                f"{args.num_eval_episodes} episodes."
-            )
+    finally:
+        progress.close()
 
     os.makedirs(output_dir, exist_ok=True)
     with open(os.path.join(output_dir, "metadata.json"), "w") as jsonfile:
