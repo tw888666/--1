@@ -335,6 +335,12 @@ def get_args():
             "type": str,
             "help": "Directory for evaluation CSV and metadata outputs.",
         },
+        {
+            "name": "--no_hard_exit_after_eval",
+            "action": "store_true",
+            "default": False,
+            "help": "Disable os._exit(0) after successful energy evaluation output.",
+        },
     ]
     # parse arguments
     args = gymutil.parse_arguments(

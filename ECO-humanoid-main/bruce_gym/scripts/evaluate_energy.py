@@ -5,6 +5,7 @@
 import csv
 import json
 import os
+import sys
 import time
 from collections import defaultdict
 
@@ -405,6 +406,7 @@ def evaluate(args):
         "phase_summary_energy_source": (
             "integrated_policy_step_energy for pre_step_dynamic_state_valid rows"
         ),
+        "hard_exit_after_eval": not args.no_hard_exit_after_eval,
     }
 
     step_rows = []
@@ -545,6 +547,10 @@ def evaluate(args):
     )
 
     print(f"Wrote energy evaluation outputs to: {output_dir}")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    if not args.no_hard_exit_after_eval:
+        os._exit(0)
 
 
 if __name__ == "__main__":
