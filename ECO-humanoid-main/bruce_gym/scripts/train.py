@@ -31,6 +31,10 @@
 # Copyright (c) 2026 ECO Authors. All rights reserved.
 
 
+from bruce_gym.gpu_auto_select import apply_auto_gpu_selection_from_argv
+
+apply_auto_gpu_selection_from_argv()
+
 from bruce_gym.envs import *
 from bruce_gym.utils import get_args, task_registry
 

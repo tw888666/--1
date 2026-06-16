@@ -9,6 +9,10 @@ import sys
 import time
 from collections import defaultdict
 
+from bruce_gym.gpu_auto_select import apply_auto_gpu_selection_from_argv
+
+apply_auto_gpu_selection_from_argv()
+
 import isaacgym  # noqa: F401
 import torch
 from tqdm import tqdm

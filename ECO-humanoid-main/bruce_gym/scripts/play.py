@@ -31,6 +31,11 @@
 # Copyright (c) 2026 ECO Authors. All rights reserved.
 import csv
 import os
+
+from bruce_gym.gpu_auto_select import apply_auto_gpu_selection_from_argv
+
+apply_auto_gpu_selection_from_argv()
+
 import cv2
 import numpy as np
 from isaacgym import gymapi
