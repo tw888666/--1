@@ -7,12 +7,16 @@ import torch
 from bruce_gym.rotor_energy import (
     BRUCE_DRIVE_JOINT_INDICES,
     BRUCE_EXPECTED_DOF_NAMES,
+    BRUCE_LEFT_FIRST_DOF_NAMES,
+    BRUCE_RIGHT_FIRST_DOF_NAMES,
     JOINT_ABS_8,
     JOINT_POSITIVE_8,
     LEGACY_JOINT_ABS_10,
     ROTOR_ABS_8,
     ROTOR_POSITIVE_8,
     assert_bruce_dof_order,
+    bruce_joint_names_from_dof_names,
+    bruce_rotor_names_from_dof_names,
     compute_bruce_energy_terms,
     compute_bruce_rotor_power,
     energy_cost_from_terms,
@@ -171,7 +175,8 @@ class BruceRotorEnergyTest(unittest.TestCase):
         )
 
     def test_bruce_dof_order_assertion(self):
-        assert_bruce_dof_order(BRUCE_EXPECTED_DOF_NAMES)
+        assert_bruce_dof_order(BRUCE_RIGHT_FIRST_DOF_NAMES)
+        assert_bruce_dof_order(BRUCE_LEFT_FIRST_DOF_NAMES)
         with self.assertRaises(ValueError):
             assert_bruce_dof_order(
                 (
@@ -187,6 +192,38 @@ class BruceRotorEnergyTest(unittest.TestCase):
                     "ankle_pitch_l",
                 )
             )
+
+    def test_runtime_names_follow_dof_order(self):
+        self.assertEqual(
+            bruce_joint_names_from_dof_names(BRUCE_LEFT_FIRST_DOF_NAMES),
+            BRUCE_LEFT_FIRST_DOF_NAMES,
+        )
+        self.assertEqual(
+            bruce_rotor_names_from_dof_names(BRUCE_LEFT_FIRST_DOF_NAMES),
+            (
+                "left_hip_motor_0",
+                "left_hip_motor_1",
+                "left_lower_motor_0",
+                "left_lower_motor_1",
+                "right_hip_motor_0",
+                "right_hip_motor_1",
+                "right_lower_motor_0",
+                "right_lower_motor_1",
+            ),
+        )
+        self.assertEqual(
+            bruce_rotor_names_from_dof_names(BRUCE_RIGHT_FIRST_DOF_NAMES),
+            (
+                "right_hip_motor_0",
+                "right_hip_motor_1",
+                "right_lower_motor_0",
+                "right_lower_motor_1",
+                "left_hip_motor_0",
+                "left_hip_motor_1",
+                "left_lower_motor_0",
+                "left_lower_motor_1",
+            ),
+        )
 
     def test_expected_dof_order_matches_bruce_urdf(self):
         repo_root = Path(__file__).resolve().parents[1]

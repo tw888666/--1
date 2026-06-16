@@ -39,7 +39,10 @@ import time
 # import isaacgym
 from bruce_gym.envs import *
 from bruce_gym.utils import  get_args, export_policy_as_jit, task_registry, Logger
-from bruce_gym.rotor_energy import BRUCE_ROTOR_NAMES, BRUCE_YAW_JOINT_INDICES
+from bruce_gym.rotor_energy import (
+    BRUCE_YAW_JOINT_INDICES,
+    bruce_rotor_names_from_dof_names,
+)
 from isaacgym.torch_utils import *
 from PIL import Image
 
@@ -170,6 +173,7 @@ def play(args):
         left_yaw_energy_idx, right_yaw_energy_idx = _resolve_yaw_energy_indices(
             left_hip_yaw_idx, right_hip_yaw_idx
         )
+        rotor_names = bruce_rotor_names_from_dof_names(env.dof_names)
         stop_state_log = 50000 # number of steps before plotting states
         listener = keyboard.Listener(on_press=on_press)
         listener.start()
@@ -338,7 +342,7 @@ def play(args):
 
             }
             if hasattr(env, "rotor_power"):
-                for motor_idx, motor_name in enumerate(BRUCE_ROTOR_NAMES):
+                for motor_idx, motor_name in enumerate(rotor_names):
                     log_dict.update({
                         f'{motor_name}_output_torque': env.rotor_output_torque[robot_index, motor_idx].item(),
                         f'{motor_name}_output_velocity': env.rotor_output_velocity[robot_index, motor_idx].item(),

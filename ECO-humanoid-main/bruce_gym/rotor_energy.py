@@ -9,7 +9,7 @@ import torch
 
 BRUCE_DRIVE_JOINT_INDICES = (1, 2, 3, 4, 6, 7, 8, 9)
 BRUCE_YAW_JOINT_INDICES = (0, 5)
-BRUCE_EXPECTED_DOF_NAMES = (
+BRUCE_RIGHT_FIRST_DOF_NAMES = (
     "hip_yaw_r",
     "hip_pitch_r",
     "hip_roll_r",
@@ -21,17 +21,37 @@ BRUCE_EXPECTED_DOF_NAMES = (
     "knee_pitch_l",
     "ankle_pitch_l",
 )
-
-BRUCE_ROTOR_NAMES = (
-    "right_hip_motor_0",
-    "right_hip_motor_1",
-    "right_lower_motor_0",
-    "right_lower_motor_1",
-    "left_hip_motor_0",
-    "left_hip_motor_1",
-    "left_lower_motor_0",
-    "left_lower_motor_1",
+BRUCE_LEFT_FIRST_DOF_NAMES = (
+    "hip_yaw_l",
+    "hip_pitch_l",
+    "hip_roll_l",
+    "knee_pitch_l",
+    "ankle_pitch_l",
+    "hip_yaw_r",
+    "hip_pitch_r",
+    "hip_roll_r",
+    "knee_pitch_r",
+    "ankle_pitch_r",
 )
+BRUCE_SUPPORTED_DOF_ORDERS = (BRUCE_RIGHT_FIRST_DOF_NAMES, BRUCE_LEFT_FIRST_DOF_NAMES)
+BRUCE_EXPECTED_DOF_NAMES = BRUCE_RIGHT_FIRST_DOF_NAMES
+
+
+def _rotor_names_from_side_blocks(side_blocks):
+    names = []
+    for side in side_blocks:
+        names.extend(
+            (
+                f"{side}_hip_motor_0",
+                f"{side}_hip_motor_1",
+                f"{side}_lower_motor_0",
+                f"{side}_lower_motor_1",
+            )
+        )
+    return tuple(names)
+
+
+BRUCE_ROTOR_NAMES = _rotor_names_from_side_blocks(("right", "left"))
 
 LEGACY_JOINT_ABS_10 = "legacy_joint_abs_10"
 JOINT_ABS_8 = "joint_abs_8"
@@ -73,15 +93,35 @@ def _select_last_dim(values: torch.Tensor, indices) -> torch.Tensor:
     return values.index_select(-1, index)
 
 
-def assert_bruce_dof_order(dof_names) -> None:
+def bruce_dof_order(dof_names):
     actual = tuple(dof_names[: len(BRUCE_EXPECTED_DOF_NAMES)])
-    if actual != BRUCE_EXPECTED_DOF_NAMES:
-        expected_text = ", ".join(BRUCE_EXPECTED_DOF_NAMES)
-        actual_text = ", ".join(actual)
-        raise ValueError(
-            "Unexpected BRUCE DOF order for rotor energy mapping. "
-            f"Expected [{expected_text}], got [{actual_text}]."
-        )
+    if actual in BRUCE_SUPPORTED_DOF_ORDERS:
+        return actual
+    expected_text = " or ".join(
+        f"[{', '.join(order)}]" for order in BRUCE_SUPPORTED_DOF_ORDERS
+    )
+    actual_text = ", ".join(actual)
+    raise ValueError(
+        "Unexpected BRUCE DOF order for rotor energy mapping. "
+        f"Expected {expected_text}, got [{actual_text}]."
+    )
+
+
+def assert_bruce_dof_order(dof_names) -> None:
+    bruce_dof_order(dof_names)
+
+
+def bruce_joint_names_from_dof_names(dof_names):
+    return bruce_dof_order(dof_names)
+
+
+def bruce_rotor_names_from_dof_names(dof_names):
+    order = bruce_dof_order(dof_names)
+    side_blocks = []
+    for block_start in (0, 5):
+        side_suffix = order[block_start].rsplit("_", 1)[-1]
+        side_blocks.append("left" if side_suffix == "l" else "right")
+    return _rotor_names_from_side_blocks(side_blocks)
 
 
 def _map_pair(

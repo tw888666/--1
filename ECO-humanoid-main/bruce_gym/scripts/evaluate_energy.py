@@ -17,11 +17,14 @@ from bruce_gym.rotor_energy import (
     BRUCE_EXPECTED_DOF_NAMES,
     BRUCE_ROTOR_NAMES,
     SUPPORTED_ENERGY_COST_MODES,
+    bruce_joint_names_from_dof_names,
+    bruce_rotor_names_from_dof_names,
 )
 from bruce_gym.utils import get_args, task_registry
 
 
 JOINT_NAMES = BRUCE_EXPECTED_DOF_NAMES
+ROTOR_NAMES = BRUCE_ROTOR_NAMES
 
 
 def _to_float(value):
@@ -104,7 +107,7 @@ def _phase_label(left_contact, right_contact):
 
 
 def _add_motor_fields(row, prefix, values):
-    for idx, motor_name in enumerate(BRUCE_ROTOR_NAMES):
+    for idx, motor_name in enumerate(ROTOR_NAMES):
         row[f"{motor_name}_{prefix}"] = values[idx]
 
 
@@ -180,8 +183,8 @@ def _new_episode_accumulator():
         "distance_x": 0.0,
         "path_length_xy": 0.0,
         "body_frame_distance_x": 0.0,
-        "rotor_pos": [0.0] * len(BRUCE_ROTOR_NAMES),
-        "rotor_neg": [0.0] * len(BRUCE_ROTOR_NAMES),
+        "rotor_pos": [0.0] * len(ROTOR_NAMES),
+        "rotor_neg": [0.0] * len(ROTOR_NAMES),
         "yaw_pos": [0.0, 0.0],
         "yaw_neg": [0.0, 0.0],
         "joint_pos": [0.0] * len(JOINT_NAMES),
@@ -249,8 +252,8 @@ def _empty_phase_stats():
     return {
         "episodes": 0,
         "valid_steps": 0,
-        "rotor_pos": [0.0] * len(BRUCE_ROTOR_NAMES),
-        "rotor_neg": [0.0] * len(BRUCE_ROTOR_NAMES),
+        "rotor_pos": [0.0] * len(ROTOR_NAMES),
+        "rotor_neg": [0.0] * len(ROTOR_NAMES),
         "yaw_pos": [0.0, 0.0],
         "yaw_neg": [0.0, 0.0],
         "joint_pos": [0.0] * len(JOINT_NAMES),
@@ -329,6 +332,8 @@ def _default_output_dir(args):
 
 
 def evaluate(args):
+    global JOINT_NAMES, ROTOR_NAMES
+
     if args.task == "XBotL_free":
         args.task = "bruce_ppolag"
     if (
@@ -361,6 +366,8 @@ def evaluate(args):
     body_names = getattr(env, "body_names", [])
     print("DOF_NAMES:", env.dof_names)
     print("FEET_NAMES:", feet_names)
+    JOINT_NAMES = bruce_joint_names_from_dof_names(env.dof_names)
+    ROTOR_NAMES = bruce_rotor_names_from_dof_names(env.dof_names)
     left_foot_idx, right_foot_idx = _resolve_foot_contact_indices(feet_names)
 
     metadata = {
@@ -380,7 +387,7 @@ def evaluate(args):
         "feet_names": list(feet_names),
         "left_foot_name": feet_names[left_foot_idx],
         "right_foot_name": feet_names[right_foot_idx],
-        "rotor_names": list(BRUCE_ROTOR_NAMES),
+        "rotor_names": list(ROTOR_NAMES),
         "joint_names": list(JOINT_NAMES),
         "state_rows_sample": "pre_step",
         "valid_state_semantics": "pre_step_dynamic_state_valid",
