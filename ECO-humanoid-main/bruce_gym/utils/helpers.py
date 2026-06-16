@@ -109,28 +109,37 @@ def parse_sim_params(args, cfg):
 
 
 def get_load_path(root, load_run=-1, checkpoint=-1):
-    try:
+    if load_run == -1 or str(load_run) == "-1":
+        if not os.path.isdir(root):
+            raise ValueError("No runs in this directory: " + root)
         runs = os.listdir(root)
         # TODO sort by date to handle change of month
         runs.sort()
         if "exported" in runs:
             runs.remove("exported")
-        last_run = os.path.join(root, runs[-1])
-    except:
-        raise ValueError("No runs in this directory: " + root)
-    if load_run == -1:
-        load_run = last_run
+        if len(runs) == 0:
+            raise ValueError("No runs in this directory: " + root)
+        load_run = os.path.join(root, runs[-1])
+    elif os.path.isabs(load_run):
+        load_run = load_run
     else:
         load_run = os.path.join(root, load_run)
+
+    if not os.path.isdir(load_run):
+        raise ValueError("Run directory does not exist: " + load_run)
 
     if checkpoint == -1:
         models = [file for file in os.listdir(load_run) if "model" in file]
         models.sort(key=lambda m: "{0:0>15}".format(m))
+        if len(models) == 0:
+            raise ValueError("No model checkpoints in directory: " + load_run)
         model = models[-1]
     else:
         model = "model_{}.pt".format(checkpoint)
 
     load_path = os.path.join(load_run, model)
+    if not os.path.isfile(load_path):
+        raise ValueError("Checkpoint file does not exist: " + load_path)
     return load_path
 
 
