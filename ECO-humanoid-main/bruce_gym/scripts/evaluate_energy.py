@@ -8,6 +8,7 @@ import os
 import time
 from collections import defaultdict
 
+import isaacgym  # noqa: F401
 import torch
 
 from bruce_gym import LEGGED_GYM_ROOT_DIR
