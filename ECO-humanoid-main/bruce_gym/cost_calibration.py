@@ -10,6 +10,21 @@ import statistics
 from typing import Iterable, Mapping
 
 
+def evenly_spaced_indices(total_count: int, sample_count: int) -> list[int]:
+    """Return unique indices spanning a fixed environment cohort."""
+
+    if total_count <= 0:
+        raise ValueError("total_count must be positive.")
+    if not 0 < sample_count <= total_count:
+        raise ValueError(
+            "sample_count must be positive and no greater than total_count."
+        )
+    if sample_count == 1:
+        return [0]
+    scale = (total_count - 1) / (sample_count - 1)
+    return [round(index * scale) for index in range(sample_count)]
+
+
 def _describe(values: list[float]) -> dict[str, float | int | None]:
     if not values:
         return {
@@ -58,6 +73,16 @@ def summarize_episode_costs(
     success_stats = _describe(success_costs)
     all_mean = all_stats["mean"]
     success_mean = success_stats["mean"]
+    provisional_all_limit = (
+        float(all_mean) * limit_fraction if all_mean is not None else None
+    )
+    has_successes = bool(success_costs)
+    if not has_successes:
+        recommendation_status = "invalid_no_successful_episodes"
+    elif len(success_costs) < len(rows):
+        recommendation_status = "review_required_falls_present"
+    else:
+        recommendation_status = "valid_all_episodes_successful"
 
     return {
         "episode_count": len(rows),
@@ -67,16 +92,20 @@ def summarize_episode_costs(
         "cost1_all_episodes": all_stats,
         "cost1_success_episodes": success_stats,
         "limit_fraction": limit_fraction,
+        "provisional_cost_limit1_all_episodes": provisional_all_limit,
         "recommended_cost_limit1_all_episodes": (
-            float(all_mean) * limit_fraction if all_mean is not None else None
+            provisional_all_limit if has_successes else None
         ),
         "recommended_cost_limit1_success_episodes": (
             float(success_mean) * limit_fraction
             if success_mean is not None
             else None
         ),
+        "recommendation_status": recommendation_status,
         "recommendation_semantics": (
             "The all-episode recommendation matches Train/mean_cost1. "
-            "Treat it as provisional until repeated across calibration seeds."
+            "It is invalid when no successful episodes are observed and "
+            "requires review when falls are present. Repeat across calibration "
+            "seeds before formal training."
         ),
     }

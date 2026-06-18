@@ -6,7 +6,6 @@
 
 import csv
 import json
-import math
 import os
 import sys
 import time
@@ -20,7 +19,10 @@ import torch
 from tqdm import tqdm
 
 from bruce_gym import LEGGED_GYM_ROOT_DIR
-from bruce_gym.cost_calibration import summarize_episode_costs
+from bruce_gym.cost_calibration import (
+    evenly_spaced_indices,
+    summarize_episode_costs,
+)
 from bruce_gym.envs import *  # noqa: F401,F403
 from bruce_gym.rotor_energy import ROTOR_POSITIVE_8, SUPPORTED_ENERGY_COST_MODES
 from bruce_gym.utils import get_args, task_registry
@@ -72,6 +74,11 @@ def _collect_complete_episodes(env, policy, args):
     target_episodes = int(args.calibration_episodes)
     if target_episodes <= 0:
         raise ValueError("calibration_episodes must be positive.")
+    if target_episodes > env.num_envs:
+        raise ValueError(
+            "calibration_episodes must not exceed num_envs. Fixed-cohort "
+            "sampling requires one independent environment per episode."
+        )
 
     device = env.device
     episode_cost = torch.zeros(env.num_envs, dtype=torch.float, device=device)
@@ -80,13 +87,21 @@ def _collect_complete_episodes(env, policy, args):
         env.num_envs, dtype=torch.long, device=device
     )
     episode_rows = []
+    cohort_ids = torch.tensor(
+        evenly_spaced_indices(env.num_envs, target_episodes),
+        dtype=torch.long,
+        device=device,
+    )
+    pending_cohort = torch.zeros(
+        env.num_envs, dtype=torch.bool, device=device
+    )
+    pending_cohort[cohort_ids] = True
 
     env.commands[:, 0] = args.command_x
     env.compute_observations()
     obs = env.get_observations()
 
-    episode_batches = math.ceil(target_episodes / env.num_envs)
-    max_steps = int(env.max_episode_length * (episode_batches + 2))
+    max_steps = int(env.max_episode_length * 2)
     progress = tqdm(
         total=target_episodes,
         desc="Calibrating training cost",
@@ -112,61 +127,56 @@ def _collect_complete_episodes(env, policy, args):
                 if done_ids.numel() == 0:
                     continue
 
-                remaining = target_episodes - len(episode_rows)
-                record_ids = done_ids
-                if done_ids.numel() > remaining:
-                    # Simultaneous timeouts are common. Sample evenly across the
-                    # batch instead of biasing calibration toward low env IDs,
-                    # which may share nearby terrain assignments.
-                    positions = torch.linspace(
-                        0,
-                        done_ids.numel() - 1,
-                        steps=remaining,
-                        device=done_ids.device,
-                    ).round().long()
-                    record_ids = done_ids[positions]
+                # Record exactly one first complete episode from each member of
+                # a cohort selected before simulation. This prevents early falls
+                # from dominating a "first N completions" sample.
+                record_ids = done_ids[pending_cohort[done_ids]]
 
-                batch_costs = episode_cost[record_ids].detach().cpu().tolist()
-                batch_distances = (
-                    episode_body_distance[record_ids].detach().cpu().tolist()
-                )
-                batch_steps = episode_steps[record_ids].detach().cpu().tolist()
-                batch_timeouts = (
-                    env.time_out_buf[record_ids].detach().cpu().tolist()
-                )
-                batch_env_ids = record_ids.detach().cpu().tolist()
-
-                for env_id, cost1, distance, steps, timeout in zip(
-                    batch_env_ids,
-                    batch_costs,
-                    batch_distances,
-                    batch_steps,
-                    batch_timeouts,
-                ):
-                    if len(episode_rows) >= target_episodes:
-                        break
-                    duration_s = int(steps) * env.dt
-                    is_timeout = bool(timeout)
-                    episode_rows.append(
-                        {
-                            "episode_id": len(episode_rows),
-                            "env_id": int(env_id),
-                            "episode_outcome": (
-                                "success" if is_timeout else "fall"
-                            ),
-                            "timeout": float(is_timeout),
-                            "fall": float(not is_timeout),
-                            "steps": int(steps),
-                            "duration_s": duration_s,
-                            "cost1": float(cost1),
-                            "cost1_per_second": float(cost1)
-                            / max(duration_s, 1e-8),
-                            "body_frame_distance_x": float(distance),
-                            "mean_body_frame_velocity_x": float(distance)
-                            / max(duration_s, 1e-8),
-                        }
+                if record_ids.numel() > 0:
+                    batch_costs = (
+                        episode_cost[record_ids].detach().cpu().tolist()
                     )
-                    progress.update(1)
+                    batch_distances = (
+                        episode_body_distance[record_ids].detach().cpu().tolist()
+                    )
+                    batch_steps = (
+                        episode_steps[record_ids].detach().cpu().tolist()
+                    )
+                    batch_timeouts = (
+                        env.time_out_buf[record_ids].detach().cpu().tolist()
+                    )
+                    batch_env_ids = record_ids.detach().cpu().tolist()
+
+                    for env_id, cost1, distance, steps, timeout in zip(
+                        batch_env_ids,
+                        batch_costs,
+                        batch_distances,
+                        batch_steps,
+                        batch_timeouts,
+                    ):
+                        duration_s = int(steps) * env.dt
+                        is_timeout = bool(timeout)
+                        episode_rows.append(
+                            {
+                                "episode_id": len(episode_rows),
+                                "env_id": int(env_id),
+                                "episode_outcome": (
+                                    "success" if is_timeout else "fall"
+                                ),
+                                "timeout": float(is_timeout),
+                                "fall": float(not is_timeout),
+                                "steps": int(steps),
+                                "duration_s": duration_s,
+                                "cost1": float(cost1),
+                                "cost1_per_second": float(cost1)
+                                / max(duration_s, 1e-8),
+                                "body_frame_distance_x": float(distance),
+                                "mean_body_frame_velocity_x": float(distance)
+                                / max(duration_s, 1e-8),
+                            }
+                        )
+                        progress.update(1)
+                    pending_cohort[record_ids] = False
 
                 episode_cost[done_ids] = 0.0
                 episode_body_distance[done_ids] = 0.0
@@ -238,6 +248,10 @@ def calibrate(args):
         "cost_accumulation": (
             "sum of returned cost1 over each complete episode, matching "
             "the population used by Train/mean_cost1"
+        ),
+        "sampling_method": (
+            "one first complete episode from each member of an evenly spaced "
+            "fixed environment cohort"
         ),
         "checkpoint_state_loaded": "policy_weights_only",
         "output_dir": output_dir,

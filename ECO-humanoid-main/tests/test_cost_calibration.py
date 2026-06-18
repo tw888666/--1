@@ -3,7 +3,10 @@
 import math
 import unittest
 
-from bruce_gym.cost_calibration import summarize_episode_costs
+from bruce_gym.cost_calibration import (
+    evenly_spaced_indices,
+    summarize_episode_costs,
+)
 
 
 class CostCalibrationSummaryTests(unittest.TestCase):
@@ -39,6 +42,10 @@ class CostCalibrationSummaryTests(unittest.TestCase):
         self.assertAlmostEqual(
             summary["recommended_cost_limit1_success_episodes"], 19.0
         )
+        self.assertEqual(
+            summary["recommendation_status"],
+            "review_required_falls_present",
+        )
 
     def test_supports_no_successful_episodes(self):
         summary = summarize_episode_costs(
@@ -47,8 +54,16 @@ class CostCalibrationSummaryTests(unittest.TestCase):
 
         self.assertEqual(summary["success_count"], 0)
         self.assertIsNone(summary["cost1_success_episodes"]["mean"])
+        self.assertAlmostEqual(
+            summary["provisional_cost_limit1_all_episodes"], 4.75
+        )
+        self.assertIsNone(summary["recommended_cost_limit1_all_episodes"])
         self.assertIsNone(
             summary["recommended_cost_limit1_success_episodes"]
+        )
+        self.assertEqual(
+            summary["recommendation_status"],
+            "invalid_no_successful_episodes",
         )
 
     def test_rejects_empty_episode_data(self):
@@ -63,6 +78,18 @@ class CostCalibrationSummaryTests(unittest.TestCase):
                         [{"cost1": 1.0, "episode_outcome": "success"}],
                         limit_fraction=fraction,
                     )
+
+    def test_evenly_spaced_indices_cover_full_environment_range(self):
+        indices = evenly_spaced_indices(1024, 100)
+
+        self.assertEqual(len(indices), 100)
+        self.assertEqual(len(set(indices)), 100)
+        self.assertEqual(indices[0], 0)
+        self.assertEqual(indices[-1], 1023)
+
+    def test_evenly_spaced_indices_reject_invalid_sample_size(self):
+        with self.assertRaisesRegex(ValueError, "sample_count"):
+            evenly_spaced_indices(10, 11)
 
 
 if __name__ == "__main__":
