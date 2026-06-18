@@ -344,6 +344,18 @@ def get_args():
             "help": "Number of evaluation episodes.",
         },
         {
+            "name": "--calibration_episodes",
+            "type": int,
+            "default": 100,
+            "help": "Number of complete episodes for training-cost calibration.",
+        },
+        {
+            "name": "--calibration_limit_fraction",
+            "type": float,
+            "default": 0.95,
+            "help": "Fraction of baseline mean cost used for the recommended limit.",
+        },
+        {
             "name": "--command_x",
             "type": float,
             "default": 0.1,
