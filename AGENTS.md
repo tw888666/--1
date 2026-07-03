@@ -2,8 +2,58 @@
 
 ## Scope
 
-This file applies to the current project rooted at `C:\Users\95781\Desktop\阶段1`.
+This file applies to the current project rooted .
 More specific `AGENTS.md` files in subdirectories override these rules for their own scope.
+
+## Current Workspace Layout
+
+- Main working project directory: `eco-humanoid-energy-experiments/`.
+- Old directory name `ECO-humanoid-main/` has been renamed. Do not assume that old path exists.
+- Reference papers currently live at the workspace root next to this `AGENTS.md`.
+- Main experiment notes live at `eco-humanoid-energy-experiments/改进阶段.md`.
+
+Important organized result directories:
+
+```text
+eco-humanoid-energy-experiments/
+  energy_calibrations/
+    train_dist_vx010/
+      model4000_keepopt/
+        rotor_positive_8/seed0..seed5/
+        rotor_abs_8/seed0..seed5/
+        joint_positive_8/seed0..seed5/
+        legacy_joint_abs_10/seed0..seed5/
+  energy_evaluations/
+    fixed_command_vx010_20ep/
+      model4000_keepopt/
+        rotor_positive_8/seed0..seed5/
+        rotor_abs_8/seed0..seed5/
+        joint_positive_8/seed0..seed5/
+        legacy_joint_abs_10/seed0..seed5/
+  reports/
+    vx010_seed0_controls/
+```
+
+`energy_calibrations/` contains training-distribution cost calibration outputs. `energy_evaluations/fixed_command_vx010_20ep/` contains fixed-command evaluation outputs for `command_x = 0.10 m/s` and 20 episodes. `reports/` contains derived HTML/CSV/PNG report artifacts.
+
+For the fixed-command evaluation seed directories, expect:
+
+```text
+metadata.json
+episode_summary.csv
+phase_summary.csv
+step_timeseries.csv
+```
+
+For the calibration seed directories, expect:
+
+```text
+metadata.json
+episode_costs.csv
+calibration_summary.json
+```
+
+Do not delete `tests/`; they protect the energy-cost modes and calibration logic. Temporary run logs such as `*.log`, `nohup.out`, and `night_logs/` are disposable unless the user explicitly wants to preserve them.
 
 ## Language
 
