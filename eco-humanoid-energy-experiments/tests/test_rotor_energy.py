@@ -131,7 +131,9 @@ class BruceRotorEnergyTest(unittest.TestCase):
         expected = terms["rotor_drive_energy"] + 0.5 * terms["rotor_brake_energy"]
 
         self.assertIn("rotor_mixed_8", SUPPORTED_ENERGY_COST_MODES)
+        self.assertIn("rotor_mixed_8_alpha050", SUPPORTED_ENERGY_COST_MODES)
         self.assertTrue(torch.allclose(energy_cost_from_terms(terms, "rotor_mixed_8"), expected))
+        self.assertTrue(torch.allclose(energy_cost_from_terms(terms, "rotor_mixed_8_alpha050"), expected))
 
     def test_all_ten_joint_energies_are_reported(self):
         torques = torch.tensor(

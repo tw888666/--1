@@ -59,6 +59,7 @@ JOINT_POSITIVE_8 = "joint_positive_8"
 ROTOR_ABS_8 = "rotor_abs_8"
 ROTOR_POSITIVE_8 = "rotor_positive_8"
 ROTOR_MIXED_8 = "rotor_mixed_8"
+ROTOR_MIXED_8_ALPHA050 = "rotor_mixed_8_alpha050"
 ROTOR_MIXED_BRAKE_ALPHA = 0.5
 
 SUPPORTED_ENERGY_COST_MODES = (
@@ -68,6 +69,7 @@ SUPPORTED_ENERGY_COST_MODES = (
     ROTOR_ABS_8,
     ROTOR_POSITIVE_8,
     ROTOR_MIXED_8,
+    ROTOR_MIXED_8_ALPHA050,
 )
 
 
@@ -264,6 +266,6 @@ def energy_cost_from_terms(terms: Dict[str, torch.Tensor], mode: str) -> torch.T
         return terms["rotor_abs_energy"]
     if mode == ROTOR_POSITIVE_8:
         return terms["rotor_drive_energy"]
-    if mode == ROTOR_MIXED_8:
+    if mode in (ROTOR_MIXED_8, ROTOR_MIXED_8_ALPHA050):
         return terms["rotor_mixed_energy"]
     raise ValueError(f"Unsupported energy cost mode: {mode}")
