@@ -52,7 +52,7 @@ class BruceWalkCfg(LeggedRobotCfg):
         cost_limit1 = 6000
         cost_limit2 = 0.05
         env_cost_num = 1
-        energy_cost_mode = "rotor_positive_8"
+        energy_cost_mode = "rotor_mixed_8"
         koala_gear_ratio = 9.0
     class safety:
         # safety factors

@@ -14,6 +14,7 @@ from bruce_gym.rotor_energy import (
     LEGACY_JOINT_ABS_10,
     ROTOR_ABS_8,
     ROTOR_POSITIVE_8,
+    SUPPORTED_ENERGY_COST_MODES,
     assert_bruce_dof_order,
     bruce_joint_names_from_dof_names,
     bruce_rotor_names_from_dof_names,
@@ -119,6 +120,18 @@ class BruceRotorEnergyTest(unittest.TestCase):
         self.assertTrue(torch.allclose(energy_cost_from_terms(terms, JOINT_POSITIVE_8), joint_positive))
         self.assertTrue(torch.allclose(energy_cost_from_terms(terms, ROTOR_ABS_8), rotor_abs))
         self.assertTrue(torch.allclose(energy_cost_from_terms(terms, ROTOR_POSITIVE_8), terms["rotor_drive_energy"]))
+
+    def test_rotor_mixed_cost_penalizes_negative_power_with_half_weight(self):
+        torques = torch.tensor([[1.0, -2.0, 3.0, -4.0, 5.0, -6.0, 7.0, -8.0, 9.0, -10.0]], dtype=self.dtype)
+        velocities = torch.tensor([[0.5, 0.25, -0.5, 0.75, -1.0, 1.25, -1.5, 1.75, -2.0, 2.25]], dtype=self.dtype)
+        terms = compute_bruce_energy_terms(
+            torques, velocities, sim_dt=0.001, transmission=self.transmission
+        )
+
+        expected = terms["rotor_drive_energy"] + 0.5 * terms["rotor_brake_energy"]
+
+        self.assertIn("rotor_mixed_8", SUPPORTED_ENERGY_COST_MODES)
+        self.assertTrue(torch.allclose(energy_cost_from_terms(terms, "rotor_mixed_8"), expected))
 
     def test_all_ten_joint_energies_are_reported(self):
         torques = torch.tensor(

@@ -24,7 +24,7 @@ from bruce_gym.cost_calibration import (
     summarize_episode_costs,
 )
 from bruce_gym.envs import *  # noqa: F401,F403
-from bruce_gym.rotor_energy import ROTOR_POSITIVE_8, SUPPORTED_ENERGY_COST_MODES
+from bruce_gym.rotor_energy import ROTOR_MIXED_8, SUPPORTED_ENERGY_COST_MODES
 from bruce_gym.utils import get_args, task_registry
 from bruce_gym.utils.helpers import class_to_dict
 
@@ -50,7 +50,7 @@ def _set_calibration_config(env_cfg, args):
     env_cfg.commands.curriculum = False
     env_cfg.commands.ranges.lin_vel_x = [args.command_x, args.command_x]
 
-    mode = args.energy_cost_mode or ROTOR_POSITIVE_8
+    mode = args.energy_cost_mode or ROTOR_MIXED_8
     if mode not in SUPPORTED_ENERGY_COST_MODES:
         raise ValueError(
             f"Unsupported energy_cost_mode '{mode}'. "
