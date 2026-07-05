@@ -49,7 +49,7 @@ class BruceWalkIPOCfg(LeggedRobotCfg):
         episode_length_s = 24  # episode length in seconds
         use_ref_actions = False
         use_only_ref_actions =   False
-        cost_limit1 = 6000
+        cost_limit1 = 40.89548428265253
         cost_limit2 = 0.05
         env_cost_num = 1
         energy_cost_mode = "rotor_mixed_8"
