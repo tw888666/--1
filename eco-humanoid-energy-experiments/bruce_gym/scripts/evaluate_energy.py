@@ -18,6 +18,7 @@ import torch
 from tqdm import tqdm
 
 from bruce_gym import LEGGED_GYM_ROOT_DIR
+from bruce_gym.energy_reporting import rotor_energy_totals
 from bruce_gym.envs import *  # noqa: F401,F403
 from bruce_gym.rotor_energy import (
     BRUCE_EXPECTED_DOF_NAMES,
@@ -173,8 +174,7 @@ def _step_energy_snapshot(env, robot_index):
         "yaw_neg": yaw_neg,
         "joint_pos": joint_pos,
         "joint_neg": joint_neg,
-        "rotor_pos_total": sum(rotor_pos),
-        "rotor_neg_total": sum(rotor_neg),
+        **rotor_energy_totals(rotor_pos, rotor_neg),
         "yaw_pos_total": sum(yaw_pos),
         "yaw_neg_total": sum(yaw_neg),
         "joint_pos_total": sum(joint_pos),
@@ -240,8 +240,7 @@ def _episode_summary_row(episode_id, acc, timeout, dt):
         "body_frame_distance_x": acc["body_frame_distance_x"],
         "mean_body_frame_velocity_x": acc["body_frame_distance_x"]
         / max(dynamic_duration_s, 1e-8),
-        "rotor_positive_energy_8": sum(acc["rotor_pos"]),
-        "rotor_negative_energy_8": sum(acc["rotor_neg"]),
+        **rotor_energy_totals(acc["rotor_pos"], acc["rotor_neg"]),
         "yaw_positive_energy_2": sum(acc["yaw_pos"]),
         "yaw_negative_energy_2": sum(acc["yaw_neg"]),
         "joint_positive_energy_10": sum(acc["joint_pos"]),
@@ -314,8 +313,7 @@ def _phase_summary_rows(phase_acc, dt):
             "phase": phase,
             "episodes": values["episodes"],
             "valid_steps": values["valid_steps"],
-            "rotor_positive_energy_8": sum(values["rotor_pos"]),
-            "rotor_negative_energy_8": sum(values["rotor_neg"]),
+            **rotor_energy_totals(values["rotor_pos"], values["rotor_neg"]),
             "yaw_positive_energy_2": sum(values["yaw_pos"]),
             "yaw_negative_energy_2": sum(values["yaw_neg"]),
             "joint_positive_energy_10": sum(values["joint_pos"]),
@@ -496,8 +494,9 @@ def evaluate(args):
                     "command_x": args.command_x,
                     "command_y": args.command_y,
                     "command_yaw": args.command_yaw,
-                    "rotor_positive_energy_8": snapshot["rotor_pos_total"],
-                    "rotor_negative_energy_8": snapshot["rotor_neg_total"],
+                    "rotor_positive_energy_8": snapshot["rotor_positive_energy_8"],
+                    "rotor_negative_energy_8": snapshot["rotor_negative_energy_8"],
+                    "rotor_mixed_energy_8": snapshot["rotor_mixed_energy_8"],
                     "yaw_positive_energy_2": snapshot["yaw_pos_total"],
                     "yaw_negative_energy_2": snapshot["yaw_neg_total"],
                     "joint_positive_energy_10": snapshot["joint_pos_total"],

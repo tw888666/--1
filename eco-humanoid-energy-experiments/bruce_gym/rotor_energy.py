@@ -71,6 +71,10 @@ SUPPORTED_ENERGY_COST_MODES = (
 )
 
 
+def compute_rotor_mixed_energy(rotor_positive_energy, rotor_negative_energy):
+    return rotor_positive_energy + ROTOR_MIXED_BRAKE_ALPHA * rotor_negative_energy
+
+
 def make_bruce_transmission_tensors(
     device: torch.device,
     dtype: torch.dtype,
@@ -243,8 +247,8 @@ def compute_bruce_energy_terms(
         terms["drive_joint_drive_energy"] + terms["drive_joint_brake_energy"]
     )
     terms["rotor_abs_energy"] = terms["rotor_drive_energy"] + terms["rotor_brake_energy"]
-    terms["rotor_mixed_energy"] = (
-        terms["rotor_drive_energy"] + ROTOR_MIXED_BRAKE_ALPHA * terms["rotor_brake_energy"]
+    terms["rotor_mixed_energy"] = compute_rotor_mixed_energy(
+        terms["rotor_drive_energy"], terms["rotor_brake_energy"]
     )
     return terms
 
