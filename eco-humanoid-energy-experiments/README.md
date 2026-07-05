@@ -124,6 +124,41 @@ find / -name "*ibpython3.8.so.1.0*" 2>/dev/null
 # export LD_LIBRARY_PATH=/home/<your_username>/miniconda3/envs/bruce_gym/lib:$LD_LIBRARY_PATH
 ```
 
+If PyTorch reports GPUs in `torch.cuda.device_count()` but fails with
+`CUDA driver initialization failed`, start from a clean shell and avoid appending
+stale CUDA runtime paths repeatedly. A known-good minimal setup on this project is:
+
+```bash
+cd /home/xy.chen/tw/ECO-humanoid-remote/eco-humanoid-energy-experiments
+conda activate bruce_gym
+
+export PYTHONPATH="$PWD"
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+export CUDA_VISIBLE_DEVICES=0  # replace with an idle physical GPU id
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:/usr/lib/x86_64-linux-gnu"
+
+python - <<'PY'
+import os
+import torch
+
+print("CUDA_VISIBLE_DEVICES =", os.environ.get("CUDA_VISIBLE_DEVICES"))
+print("torch cuda =", torch.version.cuda)
+print("available =", torch.cuda.is_available())
+print("count =", torch.cuda.device_count())
+print(torch.zeros(1, device="cuda:0"))
+PY
+```
+
+Only run Isaac Gym after this test can create the CUDA tensor. Prefer module
+execution from the project root:
+
+```bash
+python -m bruce_gym.scripts.evaluate_energy ...
+```
+
+Avoid `python bruce_gym/scripts/evaluate_energy.py` unless `PYTHONPATH` is set,
+because running a file path can hide the project package root from Python.
+
 ### Train (Isaac Gym)
 
 Training setup note:
@@ -248,4 +283,3 @@ If you find this work useful, please consider citing:
   pages={4861-4876},
   keywords={Legged locomotion;Humanoid robots;Energy efficiency;Energy consumption;Tuning;Optimization;Costs;Stability criteria;Reinforcement learning;Automation;Humanoid and bipedal locomotion;constrained reinforcement learning;legged robots},
   doi={10.1109/TASE.2026.3662755}}
-
