@@ -496,6 +496,7 @@ def evaluate(args):
                     "command_yaw": args.command_yaw,
                     "rotor_positive_energy_8": snapshot["rotor_positive_energy_8"],
                     "rotor_negative_energy_8": snapshot["rotor_negative_energy_8"],
+                    "rotor_abs_energy_8": snapshot["rotor_abs_energy_8"],
                     "rotor_mixed_energy_8": snapshot["rotor_mixed_energy_8"],
                     "yaw_positive_energy_2": snapshot["yaw_pos_total"],
                     "yaw_negative_energy_2": snapshot["yaw_neg_total"],

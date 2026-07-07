@@ -12,6 +12,7 @@ class EnergyReportingTests(unittest.TestCase):
 
         self.assertAlmostEqual(totals["rotor_positive_energy_8"], 6.0)
         self.assertAlmostEqual(totals["rotor_negative_energy_8"], 4.5)
+        self.assertAlmostEqual(totals["rotor_abs_energy_8"], 10.5)
         self.assertAlmostEqual(totals["rotor_mixed_energy_8"], 8.25)
 
 
