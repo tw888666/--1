@@ -128,7 +128,7 @@ legacy 能量等效 cost = legacy 原始 cost * policy_dt
 
 ### 六种子均值：固定评估 20 回合
 
-本节使用已有 seed0-5 数据。统计口径为：每个 seed 先按上面的固定评估公式算出一行，再对 6 个 seed 取算术平均；固定成功率写 6 个 seed 合并后的成功回合数。原始策略参考 `model_3000` 仍是单次参考，不参与 6-seed 平均。`rotor_mixed_8_alpha050` 和 `joint_abs_8` 目前没有同口径 6-seed 固定评估数据。
+本节使用已有 seed0-5 数据。统计口径为：每个 seed 先按上面的固定评估公式算出一行，再对 6 个 seed 取算术平均；固定成功率写 6 个 seed 合并后的成功回合数。原始策略参考 `model_3000` 仍是单次参考，不参与 6-seed 平均。`rotor_mixed_8_alpha050` 和 `joint_abs_8` 目前没有同口径 6-seed 固定评估数据，因此不列入本节表格。
 
 | 方法 | cost 定义 | 固定成功率 | 20回合总 $d_x$ | 平均距离 | 平均速度 | $E_{rotor,pos}/d_x$ | $E_{rotor,neg}/d_x$ | $E_{joint,pos}/d_x$ | $E_{joint,neg}/d_x$ |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -136,13 +136,11 @@ legacy 能量等效 cost = legacy 原始 cost * policy_dt
 | `legacy_joint_abs_10` seed0-5 均值（旧 ECO 基线） | 旧 ECO，10 关节 $\lvert\tau\dot q\rvert$ | 120/120 | 54.5474 | 2.7274 | 0.1136 | 7.5220 | 7.8459 | 9.2804 | 9.8019 |
 | `rotor_positive_8` seed0-5 均值 | $P^+$ | 120/120 | 57.4537 | 2.8727 | 0.1196 | 7.6344 | 8.0524 | 10.1725 | 10.7160 |
 | `rotor_abs_8` seed0-5 均值 | $P^+ + P^-$ | 120/120 | 56.1303 | 2.8065 | 0.1169 | 7.5157 | 7.8413 | 9.9648 | 10.4407 |
-| `rotor_mixed_8_alpha050` seed0-5 均值 | $P^+ + 0.5P^-$ | - | - | - | - | - | - | - | - |
 | `joint_positive_8` seed0-5 均值 | 8 驱动关节 $P^+$ | 120/120 | 55.1245 | 2.7562 | 0.1148 | 7.6088 | 8.0452 | 9.7225 | 10.2898 |
-| `joint_abs_8` seed0-5 均值 | 8 驱动关节 $\lvert\tau\dot q\rvert$ | - | - | - | - | - | - | - | - |
 
 ### 六种子均值：训练分布 100 回合
 
-本节使用已有 seed0-5 的 `calibration_summary.json` 和 `episode_costs.csv`。统计口径为：每个 seed 先按上面的训练分布公式算出一行，再对 6 个 seed 取算术平均；`成功回合数` 写平均成功回合数/100。`legacy_joint_abs_10` 的训练 cost 已按 `policy_dt = 0.01s` 换算到能量等效口径。`rotor_mixed_8_alpha050` 和 `joint_abs_8` 目前没有同口径 6-seed 训练分布数据。
+本节使用已有 seed0-5 的 `calibration_summary.json` 和 `episode_costs.csv`。统计口径为：每个 seed 先按上面的训练分布公式算出一行，再对 6 个 seed 取算术平均；`成功回合数` 写平均成功回合数/100。`legacy_joint_abs_10` 的训练 cost 已按 `policy_dt = 0.01s` 换算到能量等效口径。`rotor_mixed_8_alpha050` 和 `joint_abs_8` 目前没有同口径 6-seed 训练分布数据，因此不列入本节表格。
 
 #### 所有回合口径
 
@@ -152,9 +150,7 @@ legacy 能量等效 cost = legacy 原始 cost * policy_dt
 | `legacy_joint_abs_10` seed0-5 均值（旧 ECO 基线） | 旧 ECO，10 关节 $\lvert\tau\dot q\rvert$，已乘 `0.01s` | 55.4052 | 87.00% | 0.0855 | 1.9293 | 192.9349 | 53.7379 |
 | `rotor_positive_8` seed0-5 均值 | $P^+$ | 30.8848 | 88.67% | 0.0844 | 1.9135 | 191.3503 | 30.1800 |
 | `rotor_abs_8` seed0-5 均值 | $P^+ + P^-$ | 50.8560 | 84.83% | 0.0847 | 1.8843 | 188.4327 | 49.1603 |
-| `rotor_mixed_8_alpha050` seed0-5 均值 | $P^+ + 0.5P^-$ | 40.8955 | - | - | - | - | - |
 | `joint_positive_8` seed0-5 均值 | 8 驱动关节 $P^+$ | 30.9057 | 87.00% | 0.0853 | 1.9095 | 190.9457 | 29.5966 |
-| `joint_abs_8` seed0-5 均值 | 8 驱动关节 $\lvert\tau\dot q\rvert$ | - | - | - | - | - | - |
 
 #### 成功回合口径
 
@@ -164,6 +160,4 @@ legacy 能量等效 cost = legacy 原始 cost * policy_dt
 | `legacy_joint_abs_10` seed0-5 均值（旧 ECO 基线） | 旧 ECO，10 关节 $\lvert\tau\dot q\rvert$，已乘 `0.01s` | 55.4052 | 87.00/100 | 0.0852 | 2.0450 | 177.8417 | 56.0503 | 否，56.0503 > 55.4052 |
 | `rotor_positive_8` seed0-5 均值 | $P^+$ | 30.8848 | 88.67/100 | 0.0845 | 2.0272 | 179.7902 | 31.2336 | 否，31.2336 > 30.8848 |
 | `rotor_abs_8` seed0-5 均值 | $P^+ + P^-$ | 50.8560 | 84.83/100 | 0.0846 | 2.0313 | 172.3988 | 51.6354 | 否，51.6354 > 50.8560 |
-| `rotor_mixed_8_alpha050` seed0-5 均值 | $P^+ + 0.5P^-$ | 40.8955 | - | - | - | - | - | 缺同口径 6-seed 数据 |
 | `joint_positive_8` seed0-5 均值 | 8 驱动关节 $P^+$ | 30.9057 | 87.00/100 | 0.0845 | 2.0278 | 176.4398 | 31.2735 | 否，31.2735 > 30.9057 |
-| `joint_abs_8` seed0-5 均值 | 8 驱动关节 $\lvert\tau\dot q\rvert$ | - | - | - | - | - | - | 缺同口径 6-seed 数据 |
