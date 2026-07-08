@@ -5,6 +5,7 @@
 import json
 import os
 import re
+import sys
 
 from bruce_gym.gpu_auto_select import apply_auto_gpu_selection_from_argv
 
@@ -216,6 +217,10 @@ def record(args):
         _release_writers(active_writers)
 
     print(f"Wrote {len(recorded)} episode video(s) to: {video_dir}")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    if not args.no_hard_exit_after_video:
+        os._exit(0)
 
 
 if __name__ == "__main__":

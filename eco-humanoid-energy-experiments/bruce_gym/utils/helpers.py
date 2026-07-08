@@ -481,6 +481,12 @@ def get_args():
             "default": 135.0,
             "help": "Camera rotation angle in degrees.",
         },
+        {
+            "name": "--no_hard_exit_after_video",
+            "action": "store_true",
+            "default": False,
+            "help": "Disable os._exit(0) after successful video recording output.",
+        },
     ]
     # parse arguments
     args = gymutil.parse_arguments(
