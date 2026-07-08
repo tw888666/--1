@@ -10,10 +10,11 @@ from bruce_gym.gpu_auto_select import apply_auto_gpu_selection_from_argv
 
 apply_auto_gpu_selection_from_argv()
 
+import isaacgym  # noqa: F401
 import cv2
 import numpy as np
-import torch
 from isaacgym import gymapi
+import torch
 
 from bruce_gym.envs import *  # noqa: F401,F403
 from bruce_gym.scripts.evaluate_energy import _set_eval_config, _set_fixed_command
