@@ -88,16 +88,16 @@ mixed 的 `double_support = 19.88%`，略高于原始策略参考，也接近 `r
 
 #### 负功来源表
 
-本表只分析上面同一批 fixed-command 20 回合数据。`E_{rotor,neg}/d_x` 是 8 电机转子侧反向机械能绝对累计除以前进距离；四个步态列表示各相位贡献了多少转子负功，按 `phase_summary.csv` 中的 `rotor_negative_energy_8` 归一化；“主要电机”和“主要关节”分别列出负功贡献前三的 8 电机转子通道和 10 关节通道。这里的负功仍是机械功口径，不包含电机效率或负功回收效率。
+本表只分析上面同一批 fixed-command 20 回合数据。`E_{rotor,neg}/d_x` 是 8 电机转子侧反向机械能绝对累计除以前进距离；四个步态列表示各相位贡献了多少转子负功，按 `phase_summary.csv` 中的 `rotor_negative_energy_8` 归一化；“主要电机”和“主要关节”分别列出负功贡献前三的 8 电机转子通道和 10 关节通道。电机列中的 `hip_motor` 是髋部传动电机，`lower_motor` 是下肢传动电机，不直接等同于单个膝/踝关节；括号中保留原始 CSV 字段缩写，方便回查。这里的负功仍是机械功口径，不包含电机效率或负功回收效率。
 
 | 方法 | $E_{rotor,neg}/d_x$ | 双支撑 | 左支撑 | 右支撑 | 过渡/腾空 | 转子负功主要电机（占转子负功） | 10 关节负功主要关节（占 10 关节负功） | yaw 负功占 10 关节负功 |
 | --- | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: |
-| 原始策略参考 `model_3000` | 8.3499 | 25.4% | 35.9% | 37.5% | 1.2% | R lower m0 28.3%<br>L lower m0 23.3%<br>R hip m0 16.0% | R knee 31.1%<br>L knee 26.6%<br>R hip roll 12.5% | 3.4% |
-| `legacy_joint_abs_10` seed0（旧 ECO 基线） | 7.8795 | 27.1% | 36.1% | 35.6% | 1.3% | R lower m0 28.5%<br>L lower m0 22.2%<br>R hip m0 16.4% | R knee 30.4%<br>L knee 26.3%<br>R hip roll 11.2% | 3.6% |
-| `rotor_positive_8` seed0 | 7.8181 | 22.8% | 36.4% | 39.6% | 1.3% | R lower m0 28.6%<br>L lower m0 26.8%<br>R hip m0 15.1% | R knee 30.7%<br>L knee 29.8%<br>R hip roll 10.9% | 3.4% |
-| `rotor_abs_8` seed0 | 7.7111 | 25.2% | 38.7% | 34.7% | 1.4% | L lower m0 26.7%<br>R lower m0 24.8%<br>R hip m0 14.6% | L knee 29.9%<br>R knee 27.6%<br>R hip roll 9.9% | 3.2% |
-| `rotor_mixed_8_alpha050` seed0 | 7.8655 | 24.1% | 37.8% | 36.9% | 1.2% | R lower m0 29.8%<br>L lower m0 25.4%<br>R hip m0 12.6% | R knee 31.9%<br>L knee 28.2%<br>R hip roll 10.3% | 3.3% |
-| `joint_positive_8` seed0 | 7.8613 | 27.7% | 35.1% | 36.0% | 1.2% | L lower m0 27.3%<br>R lower m0 26.9%<br>R hip m0 14.8% | L knee 30.1%<br>R knee 29.4%<br>R hip roll 11.8% | 3.8% |
+| 原始策略参考 `model_3000` | 8.3499 | 25.4% | 35.9% | 37.5% | 1.2% | 右下肢传动电机0 (R lower m0) 28.3%<br>左下肢传动电机0 (L lower m0) 23.3%<br>右髋部传动电机0 (R hip m0) 16.0% | 右膝俯仰关节 (R knee) 31.1%<br>左膝俯仰关节 (L knee) 26.6%<br>右髋横滚关节 (R hip roll) 12.5% | 3.4% |
+| `legacy_joint_abs_10` seed0（旧 ECO 基线） | 7.8795 | 27.1% | 36.1% | 35.6% | 1.3% | 右下肢传动电机0 (R lower m0) 28.5%<br>左下肢传动电机0 (L lower m0) 22.2%<br>右髋部传动电机0 (R hip m0) 16.4% | 右膝俯仰关节 (R knee) 30.4%<br>左膝俯仰关节 (L knee) 26.3%<br>右髋横滚关节 (R hip roll) 11.2% | 3.6% |
+| `rotor_positive_8` seed0 | 7.8181 | 22.8% | 36.4% | 39.6% | 1.3% | 右下肢传动电机0 (R lower m0) 28.6%<br>左下肢传动电机0 (L lower m0) 26.8%<br>右髋部传动电机0 (R hip m0) 15.1% | 右膝俯仰关节 (R knee) 30.7%<br>左膝俯仰关节 (L knee) 29.8%<br>右髋横滚关节 (R hip roll) 10.9% | 3.4% |
+| `rotor_abs_8` seed0 | 7.7111 | 25.2% | 38.7% | 34.7% | 1.4% | 左下肢传动电机0 (L lower m0) 26.7%<br>右下肢传动电机0 (R lower m0) 24.8%<br>右髋部传动电机0 (R hip m0) 14.6% | 左膝俯仰关节 (L knee) 29.9%<br>右膝俯仰关节 (R knee) 27.6%<br>右髋横滚关节 (R hip roll) 9.9% | 3.2% |
+| `rotor_mixed_8_alpha050` seed0 | 7.8655 | 24.1% | 37.8% | 36.9% | 1.2% | 右下肢传动电机0 (R lower m0) 29.8%<br>左下肢传动电机0 (L lower m0) 25.4%<br>右髋部传动电机0 (R hip m0) 12.6% | 右膝俯仰关节 (R knee) 31.9%<br>左膝俯仰关节 (L knee) 28.2%<br>右髋横滚关节 (R hip roll) 10.3% | 3.3% |
+| `joint_positive_8` seed0 | 7.8613 | 27.7% | 35.1% | 36.0% | 1.2% | 左下肢传动电机0 (L lower m0) 27.3%<br>右下肢传动电机0 (R lower m0) 26.9%<br>右髋部传动电机0 (R hip m0) 14.8% | 左膝俯仰关节 (L knee) 30.1%<br>右膝俯仰关节 (R knee) 29.4%<br>右髋横滚关节 (R hip roll) 11.8% | 3.8% |
 | `joint_abs_8` seed0 | - | - | - | - | - | - | - | - |
 
 这个表说明：固定评估 20 回合中，负功不是主要来自双支撑被压短或 yaw 关节，而是主要集中在左右支撑相的 knee/lower 通道。`rotor_mixed_8_alpha050` 的负功来源排序和其他方法相近，未显示出单独通过 yaw 或过渡相“制造负功”的异常模式。
