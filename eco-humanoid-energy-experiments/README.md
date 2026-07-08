@@ -222,6 +222,74 @@ python bruce_gym/scripts/play.py \
   --checkpoint=<checkpoint_id>
 ```
 
+### Offline Evaluation Review
+
+For a headless server, prefer an offline review bundle over a live viewer. The
+energy evaluator can write the normal CSV outputs and then build a review
+directory with per-episode time series, best/median/worst plots, a summary CSV,
+and a Markdown report:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python -u -m bruce_gym.scripts.evaluate_energy \
+  --task=bruce_ppolag \
+  --headless \
+  --resume \
+  --experiment_name=exp \
+  --load_run=<run_name_or_absolute_run_path> \
+  --checkpoint=<checkpoint_id> \
+  --energy_cost_mode=rotor_mixed_8_alpha050 \
+  --num_eval_episodes=20 \
+  --command_x=0.1 \
+  --sim_device=cuda:0 \
+  --rl_device=cuda:0 \
+  --seed=0 \
+  --output_dir=energy_evaluations/<eval_name> \
+  --make_eval_report
+```
+
+This creates:
+
+```text
+energy_evaluations/<eval_name>/eval_report/
+├── summary.csv
+├── representative_episodes.json
+├── report.md
+├── episodes/episode_0000.csv
+├── episode_best_curves.png
+├── episode_median_curves.png
+├── episode_worst_curves.png
+└── joint_energy_contribution.png
+```
+
+If evaluation CSVs already exist, generate only the review bundle:
+
+```bash
+python -m bruce_gym.scripts.generate_eval_review \
+  --eval_dir=energy_evaluations/<eval_name>
+```
+
+To record the selected best/median/worst episodes as MP4 files, rerun the same
+policy with the review directory. This replays the deterministic fixed-command
+evaluation and records only the selected episode ids:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python -u -m bruce_gym.scripts.record_eval_video \
+  --task=bruce_ppolag \
+  --headless \
+  --resume \
+  --experiment_name=exp \
+  --load_run=<run_name_or_absolute_run_path> \
+  --checkpoint=<checkpoint_id> \
+  --energy_cost_mode=rotor_mixed_8_alpha050 \
+  --command_x=0.1 \
+  --review_dir=energy_evaluations/<eval_name>/eval_report \
+  --sim_device=cuda:0 \
+  --rl_device=cuda:0
+```
+
+The review and video commands load model weights for evaluation only; they do
+not train and do not modify checkpoints.
+
 ### Play (MuJoCo)
 
 ```bash

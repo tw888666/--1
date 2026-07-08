@@ -19,6 +19,7 @@ from tqdm import tqdm
 
 from bruce_gym import LEGGED_GYM_ROOT_DIR
 from bruce_gym.energy_reporting import rotor_energy_totals
+from bruce_gym.eval_review import generate_review
 from bruce_gym.envs import *  # noqa: F401,F403
 from bruce_gym.rotor_energy import (
     BRUCE_EXPECTED_DOF_NAMES,
@@ -376,8 +377,11 @@ def evaluate(args):
 
     metadata = {
         "task": args.task,
+        "experiment_name": train_cfg.runner.experiment_name,
+        "run_name": train_cfg.runner.run_name,
         "load_run": train_cfg.runner.load_run,
         "checkpoint": train_cfg.runner.checkpoint,
+        "seed": args.seed,
         "energy_cost_mode": env.energy_cost_mode,
         "num_eval_episodes": args.num_eval_episodes,
         "command_x": args.command_x,
@@ -595,6 +599,15 @@ def evaluate(args):
         os.path.join(output_dir, "phase_summary.csv"),
         _phase_summary_rows(phase_acc, env.dt),
     )
+
+    if args.make_eval_report:
+        report_dir = args.eval_report_dir or os.path.join(output_dir, "eval_report")
+        review_result = generate_review(
+            eval_dir=output_dir,
+            output_dir=report_dir,
+            make_plots=not args.no_eval_report_plots,
+        )
+        print(f"Wrote evaluation review report to: {review_result['report_dir']}")
 
     print(f"Wrote energy evaluation outputs to: {output_dir}")
     sys.stdout.flush()

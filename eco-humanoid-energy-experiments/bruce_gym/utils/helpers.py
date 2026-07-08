@@ -396,6 +396,91 @@ def get_args():
             "default": 50,
             "help": "Refresh energy evaluation progress every N simulator steps.",
         },
+        {
+            "name": "--make_eval_report",
+            "action": "store_true",
+            "default": False,
+            "help": "Generate an offline evaluation review report after energy evaluation.",
+        },
+        {
+            "name": "--eval_report_dir",
+            "type": str,
+            "help": "Directory for the offline evaluation review report.",
+        },
+        {
+            "name": "--no_eval_report_plots",
+            "action": "store_true",
+            "default": False,
+            "help": "Skip PNG plot generation in the evaluation review report.",
+        },
+        {
+            "name": "--review_dir",
+            "type": str,
+            "help": "Evaluation review directory containing representative_episodes.json.",
+        },
+        {
+            "name": "--record_episode_ids",
+            "type": str,
+            "help": "Comma-separated episode ids to record instead of reading review_dir.",
+        },
+        {
+            "name": "--record_episode_labels",
+            "type": str,
+            "help": "Comma-separated labels for record_episode_ids.",
+        },
+        {
+            "name": "--max_video_episodes",
+            "type": int,
+            "default": 3,
+            "help": "Maximum number of selected episodes to record.",
+        },
+        {
+            "name": "--video_dir",
+            "type": str,
+            "help": "Directory for recorded episode videos. Defaults to review_dir.",
+        },
+        {
+            "name": "--video_width",
+            "type": int,
+            "default": 1280,
+            "help": "Recorded video width.",
+        },
+        {
+            "name": "--video_height",
+            "type": int,
+            "default": 720,
+            "help": "Recorded video height.",
+        },
+        {
+            "name": "--video_fps",
+            "type": int,
+            "default": 50,
+            "help": "Recorded video frame rate.",
+        },
+        {
+            "name": "--video_stride",
+            "type": int,
+            "default": 1,
+            "help": "Record one video frame every N policy steps.",
+        },
+        {
+            "name": "--camera_offset",
+            "type": str,
+            "default": "1.0,-1.0,0.5",
+            "help": "Camera offset from the robot body as x,y,z.",
+        },
+        {
+            "name": "--camera_axis",
+            "type": str,
+            "default": "-0.3,0.2,1.0",
+            "help": "Camera rotation axis as x,y,z.",
+        },
+        {
+            "name": "--camera_angle_deg",
+            "type": float,
+            "default": 135.0,
+            "help": "Camera rotation angle in degrees.",
+        },
     ]
     # parse arguments
     args = gymutil.parse_arguments(
