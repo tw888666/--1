@@ -37,7 +37,7 @@ rotor_abs_energy_8 = rotor_positive_energy_8 + rotor_negative_energy_8
 | `rotor_abs_8` seed0 | `energy_evaluations/fixed_command_vx010_20ep/model4000_keepopt/rotor_abs_8/seed0` |
 | `rotor_mixed_8_alpha050` seed0 | `energy_evaluations/eval_rm8a05_cl40895_keepopt_s0_model4000_vx010_20ep` |
 | `joint_positive_8` seed0 | `energy_evaluations/fixed_command_vx010_20ep/model4000_keepopt/joint_positive_8/seed0` |
-| `joint_abs_8` seed0 | 当前没有同口径 `v_x=0.1`、model4000 keepopt 结果；已有 `ja8` 为 v020 实验，不混入本表 |
+| `joint_abs_8` seed0 | `energy_evaluations/fixed_command_vx010_20ep/model4000_keepopt/joint_abs_8/seed0` |
 
 单位距离能耗使用总和比值：
 
@@ -61,8 +61,11 @@ E_mix / d_x = (sum(rotor_positive_energy_8) + 0.5 * sum(rotor_negative_energy_8)
 | `rotor_positive_8` seed0 | 19.86% | 38.53% | 41.31% | 0.29% |
 | `rotor_abs_8` seed0 | 18.77% | 39.58% | 41.36% | 0.29% |
 | `rotor_mixed_8_alpha050` seed0 | 19.88% | 40.10% | 39.73% | 0.29% |
+| `joint_abs_8` seed0 | 18.27% | 38.71% | 42.74% | 0.29% |
 
 mixed 的 `double_support = 19.88%`，略高于原始策略参考，也接近 `rotor_positive_8` 和 `legacy_joint_abs_10`。因此当前没有“通过压短双支撑来省能”的异常迹象。
+
+`joint_abs_8` seed0 的双支撑时间更短，但 `flight_or_transition = 0.29%`，没有出现通过增加腾空/过渡相来异常降低能耗的迹象。
 
 
 
@@ -82,9 +85,9 @@ mixed 的 `double_support = 19.88%`，略高于原始策略参考，也接近 `r
 | `rotor_abs_8` seed0 | $P^+ + P^-$ | 20/20 | 58.3768 | 2.9188 | 0.1216 | 7.4331 | 7.7111 | 0.1838 | 0.3194 | 9.7019 | 10.1154 |
 | `rotor_mixed_8_alpha050` seed0 | $P^+ + 0.5P^-$ | 20/20 | 56.8467 | 2.8423 | 0.1184 | 7.4248 | 7.8655 | 0.2331 | 0.3428 | 9.9094 | 10.4597 |
 | `joint_positive_8` seed0 | 8 驱动关节 $P^+$ | 20/20 | 53.6594 | 2.6830 | 0.1117 | 7.3229 | 7.8613 | 0.2948 | 0.3868 | 9.5172 | 10.1475 |
-| `joint_abs_8` seed0 | 8 驱动关节 $\lvert\tau\dot q\rvert$ | - | - | - | - | - | - | - | - | - | - |
+| `joint_abs_8` seed0 | 8 驱动关节 $\lvert\tau\dot q\rvert$ | 20/20 | 58.0491 | 2.9025 | 0.1209 | 7.4202 | 7.6887 | 0.2876 | 0.3599 | 9.0169 | 9.3577 |
 
-`joint_abs_8` 目前只有 v020 相关训练/校准记录，没有本表同口径的 `v_x=0.1`、model4000 keepopt 固定评估，因此固定评估表中保留为空。
+`joint_abs_8` seed0 已补齐同口径 `v_x=0.1`、model4000 keepopt 固定评估。其固定工况 `E_{rotor,pos}/d_x = 7.4202`，低于原始策略参考的 `8.0737`，也接近 `rotor_abs_8` 和 mixed seed0；但当前只有 seed0，不能替代六种子结论。
 
 #### 负功来源表
 
@@ -98,7 +101,7 @@ mixed 的 `double_support = 19.88%`，略高于原始策略参考，也接近 `r
 | `rotor_abs_8` seed0 | 7.7111 | 25.2% | 38.7% | 34.7% | 1.4% | 左下肢传动电机0 (L lower m0) 26.7%<br>右下肢传动电机0 (R lower m0) 24.8%<br>右髋部传动电机0 (R hip m0) 14.6% | 左膝俯仰关节 (L knee) 29.9%<br>右膝俯仰关节 (R knee) 27.6%<br>右髋横滚关节 (R hip roll) 9.9% | 3.2% |
 | `rotor_mixed_8_alpha050` seed0 | 7.8655 | 24.1% | 37.8% | 36.9% | 1.2% | 右下肢传动电机0 (R lower m0) 29.8%<br>左下肢传动电机0 (L lower m0) 25.4%<br>右髋部传动电机0 (R hip m0) 12.6% | 右膝俯仰关节 (R knee) 31.9%<br>左膝俯仰关节 (L knee) 28.2%<br>右髋横滚关节 (R hip roll) 10.3% | 3.3% |
 | `joint_positive_8` seed0 | 7.8613 | 27.7% | 35.1% | 36.0% | 1.2% | 左下肢传动电机0 (L lower m0) 27.3%<br>右下肢传动电机0 (R lower m0) 26.9%<br>右髋部传动电机0 (R hip m0) 14.8% | 左膝俯仰关节 (L knee) 30.1%<br>右膝俯仰关节 (R knee) 29.4%<br>右髋横滚关节 (R hip roll) 11.8% | 3.8% |
-| `joint_abs_8` seed0 | - | - | - | - | - | - | - | - |
+| `joint_abs_8` seed0 | 7.6887 | 27.7% | 34.7% | 36.1% | 1.5% | 右下肢传动电机0 (R lower m0) 25.1%<br>左下肢传动电机0 (L lower m0) 19.7%<br>右髋部传动电机0 (R hip m0) 16.6% | 右膝俯仰关节 (R knee) 28.9%<br>左膝俯仰关节 (L knee) 23.8%<br>右髋横滚关节 (R hip roll) 11.2% | 3.8% |
 
 这个表说明：固定评估 20 回合中，负功不是主要来自双支撑被压短或 yaw 关节，而是主要集中在左右支撑相的 knee/lower 通道。`rotor_mixed_8_alpha050` 的负功来源排序和其他方法相近，未显示出单独通过 yaw 或过渡相“制造负功”的异常模式。
 
@@ -126,7 +129,7 @@ legacy 能量等效 cost = legacy 原始 cost * policy_dt
 | `rotor_abs_8` seed0 | $P^+ + P^-$ | 50.8560 | 86% | 0.0875 | 1.9748 | 197.4755 | 49.5549 |
 | `rotor_mixed_8_alpha050` seed0 | $P^+ + 0.5P^-$ | 40.8955 | 88% | 0.0866 | 1.9893 | 198.9276 | 41.0888 |
 | `joint_positive_8` seed0 | 8 驱动关节 $P^+$ | 30.9057 | 92% | 0.0837 | 1.9294 | 192.9378 | 29.5103 |
-| `joint_abs_8` seed0 | 8 驱动关节 $\lvert\tau\dot q\rvert$ | - | - | - | - | - | - |
+| `joint_abs_8` seed0 | 8 驱动关节 $\lvert\tau\dot q\rvert$ | 51.5893 | 87% | 0.0826 | 1.8863 | 188.6350 | 50.2404 |
 
 #### 成功回合口径
 
@@ -140,7 +143,9 @@ legacy 能量等效 cost = legacy 原始 cost * policy_dt
 | `rotor_abs_8` seed0 | $P^+ + P^-$ | 50.8560 | 86/100 | 0.0872 | 2.0932 | 180.0171 | 51.5796 | 否，51.5796 > 50.8560 |
 | `rotor_mixed_8_alpha050` seed0 | $P^+ + 0.5P^-$ | 40.8955 | 88/100 | 0.0880 | 2.1121 | 185.8691 | 41.6067 | 否，41.6067 > 40.8955 |
 | `joint_positive_8` seed0 | 8 驱动关节 $P^+$ | 30.9057 | 92/100 | 0.0831 | 1.9932 | 183.3765 | 30.2125 | 是，30.2125 < 30.9057 |
-| `joint_abs_8` seed0 | 8 驱动关节 $\lvert\tau\dot q\rvert$ | - | - | - | - | - | - | 缺同口径 vx010 数据 |
+| `joint_abs_8` seed0 | 8 驱动关节 $\lvert\tau\dot q\rvert$ | 51.5893 | 87/100 | 0.0837 | 2.0081 | 174.7061 | 51.2934 | 是，51.2934 < 51.5893 |
+
+`joint_abs_8` seed0 的 all-episode cost 和 success-episode cost 均低于自身 seed0 阈值 `51.5893`，固定评估也为 `20/20` 成功；但训练分布仍有 `13/100` 摔倒，且该阈值来自单 seed0 baseline calibration（原始基线校准），因此目前只能作为 seed0 证据，不能视为稳定六种子结论。
 
 ### 六种子均值：固定评估 20 回合
 
