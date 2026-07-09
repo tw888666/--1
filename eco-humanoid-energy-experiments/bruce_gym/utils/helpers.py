@@ -454,7 +454,7 @@ def get_args():
         {
             "name": "--video_fps",
             "type": int,
-            "default": 50,
+            "default": 100,
             "help": "Recorded video frame rate.",
         },
         {
