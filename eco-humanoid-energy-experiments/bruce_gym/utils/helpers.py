@@ -487,6 +487,24 @@ def get_args():
             "default": False,
             "help": "Disable os._exit(0) after successful video recording output.",
         },
+        {
+            "name": "--no_web_video_conversion",
+            "action": "store_true",
+            "default": False,
+            "help": "Skip H.264 browser-compatible _web.mp4 conversion after recording.",
+        },
+        {
+            "name": "--web_video_crf",
+            "type": int,
+            "default": 23,
+            "help": "H.264 CRF quality for browser-compatible _web.mp4 conversion.",
+        },
+        {
+            "name": "--web_video_preset",
+            "type": str,
+            "default": "veryfast",
+            "help": "H.264 preset for browser-compatible _web.mp4 conversion.",
+        },
     ]
     # parse arguments
     args = gymutil.parse_arguments(

@@ -5,6 +5,8 @@
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 
 from bruce_gym.gpu_auto_select import apply_auto_gpu_selection_from_argv
@@ -143,6 +145,43 @@ def _release_writers(writers):
         writer.release()
 
 
+def _web_video_path(path):
+    root, ext = os.path.splitext(path)
+    return f"{root}_web{ext}"
+
+
+def _convert_to_web_video(path, args):
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        print(f"ffmpeg not found; skipping browser-compatible copy for {path}.")
+        return None
+
+    output_path = _web_video_path(path)
+    env = os.environ.copy()
+    env.pop("LD_LIBRARY_PATH", None)
+    command = [
+        ffmpeg,
+        "-y",
+        "-i",
+        path,
+        "-an",
+        "-c:v",
+        "libx264",
+        "-preset",
+        args.web_video_preset,
+        "-crf",
+        str(args.web_video_crf),
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        output_path,
+    ]
+    subprocess.run(command, check=True, env=env)
+    print(f"Wrote browser-compatible video to: {output_path}")
+    return output_path
+
+
 def record(args):
     targets = _resolve_targets(args)
     if not targets:
@@ -175,6 +214,7 @@ def record(args):
     episode_step = 0
     active_episode = None
     active_writers = []
+    recorded_paths = []
     recorded = set()
     max_steps = int((max_target_episode + 1) * env.max_episode_length * 3)
 
@@ -200,6 +240,7 @@ def record(args):
                 episode_step += 1
                 if done:
                     if active_writers:
+                        recorded_paths.extend(path for path, _ in active_writers)
                         _release_writers(active_writers)
                         recorded.add(episode_id)
                         active_writers = []
@@ -215,6 +256,10 @@ def record(args):
                 )
     finally:
         _release_writers(active_writers)
+
+    if not args.no_web_video_conversion:
+        for path in recorded_paths:
+            _convert_to_web_video(path, args)
 
     print(f"Wrote {len(recorded)} episode video(s) to: {video_dir}")
     sys.stdout.flush()
