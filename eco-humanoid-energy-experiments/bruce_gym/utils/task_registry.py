@@ -140,7 +140,10 @@ class TaskRegistry():
         if resume:
             if log_root=="default":
                 log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
-            log_dir = os.path.join(log_root, train_cfg.runner.load_run)
+            if os.path.isabs(str(train_cfg.runner.load_run)):
+                log_dir = os.path.join(log_root, datetime.now().strftime('%b%d_%H-%M-%S') + '_' + train_cfg.runner.run_name)
+            else:
+                log_dir = os.path.join(log_root, train_cfg.runner.load_run)
 
             print("log_dir", log_dir)
             print("log_root", log_root)
