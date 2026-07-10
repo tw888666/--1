@@ -161,6 +161,13 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
                     f"Supported modes are: {SUPPORTED_ENERGY_COST_MODES}"
                 )
             env_cfg.env.energy_cost_mode = args.energy_cost_mode
+        train_command_x = getattr(args, "train_command_x", None)
+        if train_command_x is not None:
+            env_cfg.commands.ranges.lin_vel_x = [train_command_x, train_command_x]
+            print(
+                "Overriding training commands.ranges.lin_vel_x to "
+                f"[{train_command_x}, {train_command_x}]"
+            )
     if cfg_train is not None:
         if args.cost_limit1 is not None:
             cfg_train.algorithm.cost_limit1 = args.cost_limit1
@@ -360,6 +367,11 @@ def get_args():
             "type": float,
             "default": 0.1,
             "help": "Fixed evaluation command in x velocity.",
+        },
+        {
+            "name": "--train_command_x",
+            "type": float,
+            "help": "Fixed training command in x velocity. Overrides commands.ranges.lin_vel_x when provided.",
         },
         {
             "name": "--command_y",
