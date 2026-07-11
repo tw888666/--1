@@ -495,6 +495,53 @@ def prepare_stopped_state_for_resume(state):
     return True, None
 
 
+def prepare_blocked_training_state_for_retry(state):
+    """Keep complete cleanup-crash runs and reset incomplete training jobs."""
+
+    if state.get("phase") != "training_controls":
+        return False, "--retry-failed only supports the training_controls phase"
+    failed_jobs = {
+        job_id: job
+        for job_id, job in state.get("jobs", {}).items()
+        if job.get("status") == "failed"
+    }
+    if not failed_jobs:
+        return False, "blocked training state has no failed jobs to retry"
+    if any(job.get("kind") != "train" for job in failed_jobs.values()):
+        return False, "--retry-failed refuses non-training failures"
+
+    alive = [
+        "{}(pid={})".format(job_id, job.get("pid"))
+        for job_id, job in failed_jobs.items()
+        if _pid_alive(job.get("pid"))
+    ]
+    if alive:
+        return False, "failed child processes are still alive: {}".format(
+            ", ".join(alive)
+        )
+
+    for job_id, job in failed_jobs.items():
+        artifact_ok, _ = _job_artifact_result(job)
+        cleanup_complete = (
+            job.get("returncode") == -signal.SIGSEGV
+            and artifact_ok
+            and _training_reached_final_iteration(job.get("log_path"))
+        )
+        if cleanup_complete:
+            job["status"] = "completed"
+            job["reason"] = (
+                "accepted SIGSEGV after final iteration and model_4001.pt save"
+            )
+            state["run_dirs"][job["alias"]] = job["run_dir"]
+            continue
+        state["jobs"].pop(job_id, None)
+        state.get("run_dirs", {}).pop(job.get("alias"), None)
+
+    state["status"] = "running"
+    state["reason"] = None
+    return True, None
+
+
 def _pid_alive(pid):
     if not pid:
         return False
@@ -562,6 +609,13 @@ def select_available_gpu(gpus, free_memory, busy_gpus, min_free_mib):
 def _child_environment(gpu):
     env = os.environ.copy()
     env["CUDA_VISIBLE_DEVICES"] = str(gpu)
+    conda_bin = str(Path(sys.executable).resolve().parent)
+    current_path = env.get("PATH")
+    env["PATH"] = (
+        conda_bin
+        if not current_path
+        else conda_bin + os.pathsep + current_path
+    )
     current_pythonpath = env.get("PYTHONPATH")
     env["PYTHONPATH"] = (
         str(ROOT)
@@ -653,6 +707,19 @@ def _parse_training_run_dir(log_path):
     return Path(matches[-1].strip()) if matches else None
 
 
+def _training_reached_final_iteration(log_path):
+    if not log_path:
+        return False
+    path = Path(log_path)
+    if not path.is_file():
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return bool(re.search(r"Learning iteration\s+4000/4001", text))
+
+
 def _job_artifact_result(job):
     alias = job["alias"]
     kind = job["kind"]
@@ -720,10 +787,22 @@ def _poll_jobs(state, processes):
                 )
             )
         if process is not None and returncode != 0:
-            artifact_ok = False
-            reason = "process exited with code {}{}".format(
-                returncode, ": " + reason if reason else ""
+            cleanup_complete = (
+                job["kind"] == "train"
+                and returncode == -signal.SIGSEGV
+                and artifact_ok
+                and _training_reached_final_iteration(job.get("log_path"))
             )
+            if cleanup_complete:
+                reason = (
+                    "accepted SIGSEGV after final iteration and "
+                    "model_4001.pt save"
+                )
+            else:
+                artifact_ok = False
+                reason = "process exited with code {}{}".format(
+                    returncode, ": " + reason if reason else ""
+                )
         job["returncode"] = returncode
         job["ended_at"] = _now()
         job["status"] = "completed" if artifact_ok else "failed"
@@ -1035,9 +1114,10 @@ def _preflight():
 
 
 class PipelineController:
-    def __init__(self, poll_seconds, min_free_mib):
+    def __init__(self, poll_seconds, min_free_mib, retry_failed=False):
         self.poll_seconds = poll_seconds
         self.min_free_mib = min_free_mib
+        self.retry_failed = retry_failed
         self.processes = {}
         self.stop_requested = False
         self.state = None
@@ -1182,9 +1262,15 @@ class PipelineController:
 
             self.state = load_state()
             if self.state["status"] == "blocked":
-                raise RuntimeError(
-                    "pipeline is blocked: {}".format(self.state.get("reason"))
+                if not self.retry_failed:
+                    raise RuntimeError(
+                        "pipeline is blocked: {}".format(self.state.get("reason"))
+                    )
+                resumed, reason = prepare_blocked_training_state_for_retry(
+                    self.state
                 )
+                if not resumed:
+                    raise RuntimeError(reason)
             if self.state["status"] == "complete":
                 print("vx020 pipeline is already complete")
                 return 0
@@ -1294,6 +1380,14 @@ def _build_parser():
     run_parser.add_argument(
         "--min-free-mib", type=int, default=DEFAULT_MIN_FREE_MIB
     )
+    run_parser.add_argument(
+        "--retry-failed",
+        action="store_true",
+        help=(
+            "resume a blocked training stage, retaining only complete "
+            "model_4001 cleanup-crash runs"
+        ),
+    )
     subparsers.add_parser("status", help="show persisted controller state")
     subparsers.add_parser("stop", help="stop the controller and active child jobs")
     subparsers.add_parser("dry-run", help="print all planned commands without running GPU jobs")
@@ -1327,7 +1421,11 @@ def main(argv=None):
     if args.min_free_mib <= 0:
         raise SystemExit("--min-free-mib must be positive")
     try:
-        return PipelineController(args.poll_seconds, args.min_free_mib).run()
+        return PipelineController(
+            args.poll_seconds,
+            args.min_free_mib,
+            retry_failed=args.retry_failed,
+        ).run()
     except RuntimeError as exc:
         print(str(exc), file=sys.stderr)
         return 2

@@ -3,6 +3,7 @@
 import csv
 import json
 import math
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -228,6 +229,15 @@ class CommandConstructionTests(unittest.TestCase):
 
 
 class SchedulingAndStateTests(unittest.TestCase):
+    def test_child_environment_prepends_bruce_gym_bin_to_path(self):
+        environment = pipeline._child_environment(0)
+
+        self.assertEqual(environment["CUDA_VISIBLE_DEVICES"], "0")
+        self.assertEqual(
+            environment["PATH"].split(pipeline.os.pathsep)[0],
+            str(Path(sys.executable).resolve().parent),
+        )
+
     def test_gpu_selection_respects_memory_and_busy_set(self):
         selected = pipeline.select_available_gpu(
             (3, 4), {3: 12000, 4: 9000}, {3}, 8192
@@ -300,6 +310,90 @@ class SchedulingAndStateTests(unittest.TestCase):
         self.assertEqual(state["status"], "running")
         self.assertNotIn("train_ra8", state["jobs"])
         self.assertNotIn("ra8", state["run_dirs"])
+
+    def test_retry_keeps_complete_cleanup_crash_and_requeues_incomplete_job(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            ja8_run = tmp_path / "ja8"
+            ja8_run.mkdir()
+            (ja8_run / "model_4001.pt").write_bytes(b"checkpoint")
+            ja8_log = tmp_path / "ja8.log"
+            ja8_log.write_text(
+                "log_dir {}\nLearning iteration 4000/4001\n".format(ja8_run),
+                encoding="utf-8",
+            )
+            ra8_log = tmp_path / "ra8.log"
+            ra8_log.write_text("Ninja is required\n", encoding="utf-8")
+            state = pipeline.new_state()
+            state["status"] = "blocked"
+            state["phase"] = "training_controls"
+            state["run_dirs"]["ja8"] = str(ja8_run)
+            state["jobs"] = {
+                "train_ja8": {
+                    "kind": "train",
+                    "alias": "ja8",
+                    "status": "failed",
+                    "returncode": -11,
+                    "pid": 999999998,
+                    "run_dir": str(ja8_run),
+                    "log_path": str(ja8_log),
+                },
+                "train_ra8": {
+                    "kind": "train",
+                    "alias": "ra8",
+                    "status": "failed",
+                    "returncode": 1,
+                    "pid": 999999999,
+                    "run_dir": None,
+                    "log_path": str(ra8_log),
+                },
+            }
+
+            resumed, reason = pipeline.prepare_blocked_training_state_for_retry(
+                state
+            )
+
+            self.assertTrue(resumed, reason)
+            self.assertEqual(state["status"], "running")
+            self.assertEqual(
+                state["jobs"]["train_ja8"]["status"], "completed"
+            )
+            self.assertIn("SIGSEGV", state["jobs"]["train_ja8"]["reason"])
+            self.assertNotIn("train_ra8", state["jobs"])
+
+    def test_poll_accepts_sigsegv_only_after_complete_training_artifacts(self):
+        class FinishedProcess:
+            def poll(self):
+                return -11
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            run_dir = tmp_path / "run"
+            run_dir.mkdir()
+            (run_dir / "model_4001.pt").write_bytes(b"checkpoint")
+            log_path = tmp_path / "train.log"
+            log_path.write_text(
+                "Learning iteration 4000/4001\n", encoding="utf-8"
+            )
+            state = pipeline.new_state()
+            state["run_dirs"]["ja8"] = str(run_dir)
+            state["jobs"]["train_ja8"] = {
+                "kind": "train",
+                "alias": "ja8",
+                "status": "running",
+                "pid": 123,
+                "run_dir": str(run_dir),
+                "log_path": str(log_path),
+            }
+
+            pipeline._poll_jobs(
+                state, {"train_ja8": FinishedProcess()}
+            )
+
+            job = state["jobs"]["train_ja8"]
+            self.assertEqual(job["status"], "completed")
+            self.assertEqual(job["returncode"], -11)
+            self.assertIn("SIGSEGV", job["reason"])
 
     def test_existing_failed_fixed_output_is_kept_in_summary_state(self):
         with tempfile.TemporaryDirectory() as tmp:
