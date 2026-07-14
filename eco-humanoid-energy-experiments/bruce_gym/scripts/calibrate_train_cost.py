@@ -24,7 +24,13 @@ from bruce_gym.cost_calibration import (
     summarize_episode_costs,
 )
 from bruce_gym.envs import *  # noqa: F401,F403
-from bruce_gym.rotor_energy import ROTOR_MIXED_8, SUPPORTED_ENERGY_COST_MODES
+from bruce_gym.paired_evaluation import canonical_fingerprint
+from bruce_gym.rotor_energy import (
+    CONTROL_ENERGY_COST_MODES,
+    ROTOR_MIXED_8,
+    SUPPORTED_ENERGY_COST_MODES,
+    energy_costs_from_policy_step_buffers,
+)
 from bruce_gym.utils import get_args, task_registry
 from bruce_gym.utils.helpers import class_to_dict
 
@@ -38,6 +44,55 @@ def _write_csv(path, rows):
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def _selected_tensor_rows(env, cohort_ids, attribute):
+    value = getattr(env, attribute, None)
+    if not isinstance(value, torch.Tensor):
+        return None
+    return value.index_select(0, cohort_ids).detach().cpu().tolist()
+
+
+def _build_scenario_manifest(env, cohort_ids, seed, command_x):
+    tensor_attributes = (
+        "terrain_levels",
+        "terrain_types",
+        "env_origins",
+        "commands",
+        "root_states",
+        "dof_pos",
+        "dof_vel",
+        "Kp_factors",
+        "Kd_factors",
+        "payload",
+        "com_displacement",
+        "euler_rand",
+        "friction_coeffs",
+        "restitution_coeffs",
+        "joint_friction_coeffs",
+        "joint_armature_coeffs",
+        "body_mass",
+    )
+    tensors = {}
+    for attribute in tensor_attributes:
+        rows = _selected_tensor_rows(env, cohort_ids, attribute)
+        if rows is not None:
+            tensors[attribute] = rows
+    manifest = {
+        "schema_version": 1,
+        "seed": int(seed),
+        "command_x": float(command_x),
+        "num_envs": int(env.num_envs),
+        "cohort_env_ids": cohort_ids.detach().cpu().tolist(),
+        "initial_tensors": tensors,
+        "scope": (
+            "Initial scenario pairing. Runtime noise, delay, motor-strength, "
+            "push, and disturbance streams remain seeded but are not replayed "
+            "from this manifest."
+        ),
+    }
+    manifest["sha256"] = canonical_fingerprint(manifest)
+    return manifest
 
 
 def _set_calibration_config(env_cfg, args):
@@ -82,6 +137,10 @@ def _collect_complete_episodes(env, policy, args):
 
     device = env.device
     episode_cost = torch.zeros(env.num_envs, dtype=torch.float, device=device)
+    episode_costs_by_mode = {
+        mode: torch.zeros_like(episode_cost)
+        for mode in CONTROL_ENERGY_COST_MODES
+    }
     episode_body_distance = torch.zeros_like(episode_cost)
     episode_steps = torch.zeros(
         env.num_envs, dtype=torch.long, device=device
@@ -98,6 +157,12 @@ def _collect_complete_episodes(env, policy, args):
     pending_cohort[cohort_ids] = True
 
     env.commands[:, 0] = args.command_x
+    evaluation_seed = (
+        args.seed if args.seed is not None else getattr(env.cfg, "seed", 0)
+    )
+    scenario_manifest = _build_scenario_manifest(
+        env, cohort_ids, evaluation_seed, args.command_x
+    )
     env.compute_observations()
     obs = env.get_observations()
 
@@ -120,6 +185,15 @@ def _collect_complete_episodes(env, policy, args):
                 obs, _, _, dones, _, costs = env.step(actions.detach())
 
                 episode_cost += costs[0].reshape(-1)
+                step_costs_by_mode = energy_costs_from_policy_step_buffers(
+                    env.joint_power,
+                    env.joint_drive_energy_per_joint,
+                    env.joint_brake_energy_per_joint,
+                    env.rotor_drive_energy,
+                    env.rotor_brake_energy,
+                )
+                for mode, step_cost in step_costs_by_mode.items():
+                    episode_costs_by_mode[mode] += step_cost.reshape(-1)
                 episode_body_distance += env.base_lin_vel[:, 0] * env.dt
                 episode_steps += 1
 
@@ -146,39 +220,56 @@ def _collect_complete_episodes(env, policy, args):
                         env.time_out_buf[record_ids].detach().cpu().tolist()
                     )
                     batch_env_ids = record_ids.detach().cpu().tolist()
+                    batch_costs_by_mode = {
+                        mode: values[record_ids].detach().cpu().tolist()
+                        for mode, values in episode_costs_by_mode.items()
+                    }
 
-                    for env_id, cost1, distance, steps, timeout in zip(
-                        batch_env_ids,
-                        batch_costs,
-                        batch_distances,
-                        batch_steps,
-                        batch_timeouts,
+                    for batch_index, (
+                        env_id,
+                        cost1,
+                        distance,
+                        steps,
+                        timeout,
+                    ) in enumerate(
+                        zip(
+                            batch_env_ids,
+                            batch_costs,
+                            batch_distances,
+                            batch_steps,
+                            batch_timeouts,
+                        )
                     ):
                         duration_s = int(steps) * env.dt
                         is_timeout = bool(timeout)
-                        episode_rows.append(
-                            {
-                                "episode_id": len(episode_rows),
-                                "env_id": int(env_id),
-                                "episode_outcome": (
-                                    "success" if is_timeout else "fall"
-                                ),
-                                "timeout": float(is_timeout),
-                                "fall": float(not is_timeout),
-                                "steps": int(steps),
-                                "duration_s": duration_s,
-                                "cost1": float(cost1),
-                                "cost1_per_second": float(cost1)
-                                / max(duration_s, 1e-8),
-                                "body_frame_distance_x": float(distance),
-                                "mean_body_frame_velocity_x": float(distance)
-                                / max(duration_s, 1e-8),
-                            }
-                        )
+                        row = {
+                            "episode_id": len(episode_rows),
+                            "env_id": int(env_id),
+                            "episode_outcome": (
+                                "success" if is_timeout else "fall"
+                            ),
+                            "timeout": float(is_timeout),
+                            "fall": float(not is_timeout),
+                            "steps": int(steps),
+                            "duration_s": duration_s,
+                            "cost1": float(cost1),
+                            "cost1_per_second": float(cost1)
+                            / max(duration_s, 1e-8),
+                            "body_frame_distance_x": float(distance),
+                            "mean_body_frame_velocity_x": float(distance)
+                            / max(duration_s, 1e-8),
+                        }
+                        for mode in CONTROL_ENERGY_COST_MODES:
+                            row[f"cost1_{mode}"] = float(
+                                batch_costs_by_mode[mode][batch_index]
+                            )
+                        episode_rows.append(row)
                         progress.update(1)
                     pending_cohort[record_ids] = False
 
                 episode_cost[done_ids] = 0.0
+                for values in episode_costs_by_mode.values():
+                    values[done_ids] = 0.0
                 episode_body_distance[done_ids] = 0.0
                 episode_steps[done_ids] = 0
 
@@ -192,7 +283,7 @@ def _collect_complete_episodes(env, policy, args):
     finally:
         progress.close()
 
-    return episode_rows
+    return episode_rows, scenario_manifest
 
 
 def calibrate(args):
@@ -219,10 +310,22 @@ def calibrate(args):
     )
     policy = runner.get_inference_policy(device=env.device)
 
-    episode_rows = _collect_complete_episodes(env, policy, args)
+    episode_rows, scenario_manifest = _collect_complete_episodes(
+        env, policy, args
+    )
     summary = summarize_episode_costs(
         episode_rows, limit_fraction=args.calibration_limit_fraction
     )
+    cost_mode_summaries = {}
+    for reported_mode in CONTROL_ENERGY_COST_MODES:
+        mode_rows = []
+        for row in episode_rows:
+            mode_row = dict(row)
+            mode_row["cost1"] = row[f"cost1_{reported_mode}"]
+            mode_rows.append(mode_row)
+        cost_mode_summaries[reported_mode] = summarize_episode_costs(
+            mode_rows, limit_fraction=args.calibration_limit_fraction
+        )
 
     output_dir = os.path.abspath(
         args.output_dir or _default_output_dir(args, train_cfg, mode)
@@ -253,6 +356,10 @@ def calibrate(args):
             "one first complete episode from each member of an evenly spaced "
             "fixed environment cohort"
         ),
+        "reported_cost_modes": list(CONTROL_ENERGY_COST_MODES),
+        "scenario_manifest": "scenario_manifest.json",
+        "scenario_fingerprint_sha256": scenario_manifest["sha256"],
+        "scenario_pairing_scope": scenario_manifest["scope"],
         "checkpoint_state_loaded": "policy_weights_only",
         "output_dir": output_dir,
         "hard_exit_after_calibration": not args.no_hard_exit_after_eval,
@@ -261,6 +368,10 @@ def calibrate(args):
     _write_csv(os.path.join(output_dir, "episode_costs.csv"), episode_rows)
     with open(os.path.join(output_dir, "calibration_summary.json"), "w") as f:
         json.dump(summary, f, indent=2)
+    with open(os.path.join(output_dir, "cost_mode_summaries.json"), "w") as f:
+        json.dump(cost_mode_summaries, f, indent=2)
+    with open(os.path.join(output_dir, "scenario_manifest.json"), "w") as f:
+        json.dump(scenario_manifest, f, indent=2)
     with open(os.path.join(output_dir, "metadata.json"), "w") as f:
         json.dump(metadata, f, indent=2)
 

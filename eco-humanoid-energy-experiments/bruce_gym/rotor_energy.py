@@ -72,6 +72,14 @@ SUPPORTED_ENERGY_COST_MODES = (
     ROTOR_MIXED_8_ALPHA050,
 )
 
+CONTROL_ENERGY_COST_MODES = (
+    ROTOR_POSITIVE_8,
+    ROTOR_ABS_8,
+    JOINT_POSITIVE_8,
+    JOINT_ABS_8,
+    LEGACY_JOINT_ABS_10,
+)
+
 
 def compute_rotor_mixed_energy(rotor_positive_energy, rotor_negative_energy):
     return rotor_positive_energy + ROTOR_MIXED_BRAKE_ALPHA * rotor_negative_energy
@@ -269,3 +277,29 @@ def energy_cost_from_terms(terms: Dict[str, torch.Tensor], mode: str) -> torch.T
     if mode in (ROTOR_MIXED_8, ROTOR_MIXED_8_ALPHA050):
         return terms["rotor_mixed_energy"]
     raise ValueError(f"Unsupported energy cost mode: {mode}")
+
+
+def energy_costs_from_policy_step_buffers(
+    joint_power_all: torch.Tensor,
+    joint_drive_energy_per_joint: torch.Tensor,
+    joint_brake_energy_per_joint: torch.Tensor,
+    rotor_drive_energy: torch.Tensor,
+    rotor_brake_energy: torch.Tensor,
+) -> Dict[str, torch.Tensor]:
+    """Reconstruct every control cost from one shared policy-step trajectory."""
+
+    drive_joint_positive = _select_last_dim(
+        joint_drive_energy_per_joint, BRUCE_DRIVE_JOINT_INDICES
+    ).sum(dim=-1)
+    drive_joint_negative = _select_last_dim(
+        joint_brake_energy_per_joint, BRUCE_DRIVE_JOINT_INDICES
+    ).sum(dim=-1)
+    return {
+        ROTOR_POSITIVE_8: rotor_drive_energy,
+        ROTOR_ABS_8: rotor_drive_energy + rotor_brake_energy,
+        JOINT_POSITIVE_8: drive_joint_positive,
+        JOINT_ABS_8: drive_joint_positive + drive_joint_negative,
+        LEGACY_JOINT_ABS_10: torch.abs(joint_power_all[..., :10]).sum(
+            dim=-1
+        ),
+    }

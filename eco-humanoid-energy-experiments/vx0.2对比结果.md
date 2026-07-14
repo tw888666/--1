@@ -5,8 +5,8 @@
 1. 五组 `model_4001` 在 fixed-command（固定指令）20 回合评估中均为 `20/20` 成功，世界坐标系平均 x 速度为 `0.2095–0.2182 m/s`，机体坐标系平均 x 速度为 `0.2144–0.2194 m/s`。两种速度都在验收区间 `0.16–0.24 m/s` 内，这批策略的固定评估可确认为真正的 `vx=0.2` 对照实验。
 2. 按统一的固定工况单位距离能耗比较，`legacy_joint_abs_10` 最低：转子绝对机械能较原始 `model_3000` 降低 `8.79%`，10 关节绝对机械能降低 `11.97%`。`joint_abs_8` 次之，分别降低 `6.57%` 和 `8.65%`。
 3. 在 train-distribution（训练分布）100 回合中，指令 x 速度仍固定为 `0.2 m/s`，但保留了训练地形、观测噪声、推力、heading command（航向指令）和 domain randomization（域随机化）。因此全部回合的实际加权机体速度仅为 `0.1641–0.1664 m/s`，这不表示指令配置错误。
-4. 五组训练分布的全回合平均 cost（成本）均比各自的原始 `model_3000` 参考下降，降幅为 `3.84%–10.51%`。但鲁棒性没有同步统一提升：`rotor_abs_8` 成功率持平，`legacy_joint_abs_10` 仅提高 `1` 个百分点，另外三组下降 `1–8` 个百分点。
-5. 若只统计成功回合，只有 `joint_abs_8` 的平均 cost 低于训练阈值，且仅低 `0.02%`；其余四组都高于阈值。因此不能仅用包含摔倒回合的 all-episode（全部回合）平均宣称约束已稳定满足。
+4. 旧的单次训练分布数据中，五组全回合平均 cost（成本）均比各自的原始 `model_3000` 参考下降，降幅为 `3.84%–10.51%`。但 2026-07-14 的配对审计发现，五份 `model_3000` 评估虽然 checkpoint、seed 和 env_id 一致，仍有 `54/100` 个 env_id 的成功/摔倒结果不一致。因此这些成功率和 cost 变化只作历史描述，不再作为严格配对结论。
+5. 在旧数据中，若只统计成功回合，只有 `joint_abs_8` 的平均 cost 低于训练阈值，且仅低 `0.02%`；其余四组都高于阈值。这个现象说明不能仅用包含摔倒回合的 all-episode（全部回合）平均宣称约束已稳定满足，具体数值将由新的配对多评估随机种结果替代。
 6. 目前训练及训练分布结果只有 `seed=0`（随机种 0），每组固定评估也只有一份。固定速度结论很明确，但方法优劣、成功率和 cost 阈值仍需要多随机种实验确认。
 
 ## 字段与口径
@@ -54,7 +54,9 @@ E_abs / d_x = (sum(positive_energy) + sum(negative_energy)) / sum(distance_x)
 | 五组 `model_4001` 固定评估 | `energy_evaluations/fixed_command_vx020_20ep/model4001_truevx020/<mode>/seed0` |
 | 五组原始 `model_3000` 训练分布参考 | `energy_calibrations/calib_model3000_<mode>_vx020_s0` |
 | 五组 `model_4001` 训练分布 | `energy_calibrations/train_dist_vx020/model4001_truevx020/<mode>/seed0` |
+| 配对多评估随机种输出 | `energy_calibrations/paired_vx020` |
 | 流水线总结 | `workflow_runs/vx020_seed0/summary.json` 和 `summary.md` |
+| 配对评估流水线总结 | `workflow_runs/vx020_paired_eval/summary.json` 和 `summary.md` |
 
 固定评估的 rp8、jp8 目录名为 `seed0`，对应训练 run（运行）也为 `s0`，但它们的 `metadata.json` 中 `seed` 字段为 `null`；ra8、ja8、lja10 的该字段为 `0`。由于固定评估关闭随机化且指令、checkpoint 和 cost mode 元数据均正确，本文保留 rp8 和 jp8 结果；但这是一个需要记录的 metadata（元数据）不一致。五组训练分布元数据的 `seed` 均为 `0`。
 
@@ -116,6 +118,8 @@ E_abs / d_x = (sum(positive_energy) + sum(negative_energy)) / sum(distance_x)
 
 ## 训练分布：100 回合
 
+> **证据状态（2026-07-14）**：本节保留第一轮 seed0 结果供回溯，但不再把它视为严格配对比较。审计确认五份 `model_3000.pt` 的 SHA-256（文件哈希）都是 `d4860c1e968fd28c2f5a4ba7e8970c30755352775dd9e7cda4d342b823ddf0af`，元数据均为 `checkpoint=3000`、`seed=0`、`command_x=0.2`、`num_envs=1024`，100 个 env_id 也完全相同；但不同 cost mode 之间仍有 `54/100` 个 env_id 的 outcome（结果）不同。新流水线对每个评估 seed 只运行一次 `model_3000`，在同一条轨迹上同时重算五种 cost，并对五个 `model_4001` 强制检查初始地形、指令、机器人状态和物理随机参数的场景指纹。
+
 这一阶段的 `metadata.json` 均记录：
 
 ```text
@@ -158,6 +162,6 @@ num_envs = 1024
 
 - **速度跟踪**：五组都通过 `vx=0.2` 固定评估，没有再现旧评估约 `0.05 m/s` 的问题。
 - **固定工况能耗**：`legacy_joint_abs_10` 在统一转子和关节绝对能量口径上最低，`joint_abs_8` 第二。`rotor_positive_8` 的关节绝对能量反而略升，不适合仅根据其训练 cost 宣称整体节能。
-- **随机环境鲁棒性**：`joint_positive_8` 成功率最高，但仍比自身 `model_3000` 参考低 `1` 个百分点。`rotor_positive_8` 成功率下降最多，为 `8` 个百分点。
-- **约束满足性**：以成功回合为主口径时，没有任何一组展现出充足的阈值余量。不建议直接使用当前 all-episode 均值乘 `0.95` 得到的“推荐新阈值”开始下一轮正式训练。
+- **随机环境鲁棒性**：旧 seed0 数据中 `joint_positive_8` 成功率最高，`rotor_positive_8` 降幅最大；但由于基线轨迹未严格配对，排名需等待新的 eval seed 0-5 汇总。
+- **约束满足性**：旧数据以成功回合为主口径时，没有任何一组展现出充足的阈值余量。在配对多 seed 结果出来前，不建议直接使用当前 all-episode 均值乘 `0.95` 得到的“推荐新阈值”开始下一轮正式训练。
 - **当前可支持的结论**：这批实验已经回答“固定指令速度是否真正为 `0.2 m/s`”。它还不足以回答“哪个 cost mode 在随机环境中稳定最优”，后者至少需要补齐多随机种同口径评估。

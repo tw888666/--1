@@ -21,6 +21,7 @@ from bruce_gym.rotor_energy import (
     compute_bruce_energy_terms,
     compute_bruce_rotor_power,
     energy_cost_from_terms,
+    energy_costs_from_policy_step_buffers,
     make_bruce_transmission_tensors,
 )
 
@@ -120,6 +121,38 @@ class BruceRotorEnergyTest(unittest.TestCase):
         self.assertTrue(torch.allclose(energy_cost_from_terms(terms, JOINT_POSITIVE_8), joint_positive))
         self.assertTrue(torch.allclose(energy_cost_from_terms(terms, ROTOR_ABS_8), rotor_abs))
         self.assertTrue(torch.allclose(energy_cost_from_terms(terms, ROTOR_POSITIVE_8), terms["rotor_drive_energy"]))
+
+    def test_policy_step_buffers_reconstruct_all_control_costs(self):
+        torques = torch.tensor(
+            [[1.0, -2.0, 3.0, -4.0, 5.0, -6.0, 7.0, -8.0, 9.0, -10.0]],
+            dtype=self.dtype,
+        )
+        velocities = torch.tensor(
+            [[0.5, 0.25, -0.5, 0.75, -1.0, 1.25, -1.5, 1.75, -2.0, 2.25]],
+            dtype=self.dtype,
+        )
+        terms = compute_bruce_energy_terms(
+            torques, velocities, sim_dt=0.001, transmission=self.transmission
+        )
+
+        reconstructed = energy_costs_from_policy_step_buffers(
+            terms["joint_power_all"],
+            terms["joint_drive_energy_per_joint"],
+            terms["joint_brake_energy_per_joint"],
+            terms["rotor_drive_energy"],
+            terms["rotor_brake_energy"],
+        )
+
+        for mode in (
+            ROTOR_POSITIVE_8,
+            ROTOR_ABS_8,
+            JOINT_POSITIVE_8,
+            JOINT_ABS_8,
+            LEGACY_JOINT_ABS_10,
+        ):
+            self.assertTrue(
+                torch.allclose(reconstructed[mode], energy_cost_from_terms(terms, mode))
+            )
 
     def test_rotor_mixed_cost_penalizes_negative_power_with_half_weight(self):
         torques = torch.tensor([[1.0, -2.0, 3.0, -4.0, 5.0, -6.0, 7.0, -8.0, 9.0, -10.0]], dtype=self.dtype)
