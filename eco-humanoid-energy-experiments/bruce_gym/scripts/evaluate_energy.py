@@ -90,6 +90,7 @@ def _set_eval_config(env_cfg, args):
     env_cfg.domain_rand.randomize_joint_armature = False
     env_cfg.domain_rand.randomize_kp = False
     env_cfg.domain_rand.randomize_kd = False
+    env_cfg.env.gait_phase_offset = args.eval_gait_phase_offset % 1.0
     if hasattr(env_cfg.domain_rand, "randomize_motor_strength"):
         env_cfg.domain_rand.randomize_motor_strength = False
     if args.energy_cost_mode is not None:
@@ -112,6 +113,14 @@ def _phase_label(left_contact, right_contact):
     if right_contact:
         return "right_support"
     return "flight_or_transition"
+
+
+def _eval_actions(env, policy, obs, mirrored_policy=False):
+    if not mirrored_policy:
+        return policy(obs.detach())
+    mirrored_obs = env.mirror_clock_observation(obs.detach())
+    mirrored_actions = policy(mirrored_obs)
+    return env.mirror_action(mirrored_actions)
 
 
 def _add_motor_fields(row, prefix, values):
@@ -387,6 +396,8 @@ def evaluate(args):
         "command_x": args.command_x,
         "command_y": args.command_y,
         "command_yaw": args.command_yaw,
+        "gait_phase_offset": env.gait_phase_offset,
+        "mirrored_policy": args.eval_mirrored_policy,
         "policy_dt": env.dt,
         "sim_dt": env.sim_params.dt,
         "output_dir": output_dir,
@@ -442,7 +453,12 @@ def evaluate(args):
                 pre_step_state = _pre_step_state(
                     env, robot_index, left_foot_idx, right_foot_idx
                 )
-                actions = policy(obs.detach())
+                actions = _eval_actions(
+                    env,
+                    policy,
+                    obs,
+                    mirrored_policy=args.eval_mirrored_policy,
+                )
                 obs, _, _, dones, infos, costs = env.step(actions.detach())
 
                 done = bool(dones[robot_index].item())

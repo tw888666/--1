@@ -386,6 +386,24 @@ def get_args():
             "help": "Fixed evaluation command in yaw velocity.",
         },
         {
+            "name": "--eval_gait_phase_offset",
+            "type": float,
+            "default": 0.0,
+            "help": (
+                "Evaluation-only gait clock offset in cycles. "
+                "Use 0.5 to swap the initial left/right gait role."
+            ),
+        },
+        {
+            "name": "--eval_mirrored_policy",
+            "action": "store_true",
+            "default": False,
+            "help": (
+                "Evaluate the left-right mirrored counterpart of the policy "
+                "by mirroring observations and actions."
+            ),
+        },
+        {
             "name": "--output_dir",
             "type": str,
             "help": "Directory for evaluation CSV and metadata outputs.",
