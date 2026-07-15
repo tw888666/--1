@@ -6,6 +6,7 @@ import unittest
 
 from bruce_gym.eval_review import (
     _dynamic_state_rows,
+    _localized_gait_energy_rows,
     _phase_binned_series,
     _steady_state_rows,
     build_gait_stage_joint_energy,
@@ -53,6 +54,11 @@ class EvalReviewTests(unittest.TestCase):
             sum(row["hip_pitch_l"] for row in table_rows),
             30.0,
         )
+        localized_rows, localized_joint_fields = _localized_gait_energy_rows(
+            table_rows, joint_names
+        )
+        self.assertEqual(localized_rows[0]["步态阶段"], "左脚落地与重心转移")
+        self.assertEqual(localized_joint_fields, ["左髋俯仰（hip_pitch_l）"])
 
     def test_steady_phase_series_uses_middle_third_and_wraps_phase(self):
         rows = [

@@ -51,6 +51,33 @@ GAIT_STAGES = (
         "width": 0.20,
     },
 )
+GAIT_STAGE_NAMES_ZH = {
+    "left_touchdown_transfer": "左脚落地与重心转移",
+    "left_early_stance_right_swing": "左腿前支撑、右腿摆动",
+    "left_late_stance_right_placement": "左腿后支撑、右脚落位",
+    "right_touchdown_transfer": "右脚落地与重心转移",
+    "right_early_stance_left_swing": "右腿前支撑、左腿摆动",
+    "right_late_stance_left_placement": "右腿后支撑、左脚落位",
+}
+JOINT_NAMES_ZH = {
+    "hip_yaw_l": "左髋偏航",
+    "hip_pitch_l": "左髋俯仰",
+    "hip_roll_l": "左髋侧倾",
+    "knee_pitch_l": "左膝俯仰",
+    "ankle_pitch_l": "左踝俯仰",
+    "hip_yaw_r": "右髋偏航",
+    "hip_pitch_r": "右髋俯仰",
+    "hip_roll_r": "右髋侧倾",
+    "knee_pitch_r": "右膝俯仰",
+    "ankle_pitch_r": "右踝俯仰",
+}
+ENERGY_COST_MODE_NAMES_ZH = {
+    "legacy_joint_abs_10": "旧版10关节绝对能量",
+    "joint_abs_8": "8驱动关节绝对能量",
+    "joint_positive_8": "8驱动关节正向能量",
+    "rotor_abs_8": "8电机转子绝对能量",
+    "rotor_positive_8": "8电机转子正向能量",
+}
 
 
 def _to_float(value, default=0.0):
@@ -241,6 +268,24 @@ def build_gait_stage_joint_energy(rows, metadata):
         table_row["total"] = sum(table_row[joint_name] for joint_name in joint_names)
         table_rows.append(table_row)
     return table_rows, joint_names
+
+
+def _localized_gait_energy_rows(table_rows, joint_names):
+    localized_rows = []
+    localized_joint_fields = [
+        f"{JOINT_NAMES_ZH.get(joint_name, joint_name)}（{joint_name}）"
+        for joint_name in joint_names
+    ]
+    for row in table_rows:
+        localized_row = {
+            "步态阶段": GAIT_STAGE_NAMES_ZH.get(row["stage"], row["stage"]),
+            "相位范围": row["phase"],
+        }
+        for joint_name, localized_field in zip(joint_names, localized_joint_fields):
+            localized_row[localized_field] = row[joint_name]
+        localized_row["合计"] = row["total"]
+        localized_rows.append(localized_row)
+    return localized_rows, localized_joint_fields
 
 
 def _cumulative(rows, key):
@@ -436,6 +481,15 @@ def _load_pyplot():
     import matplotlib.pyplot as plt
 
     return plt
+
+
+def _configure_chinese_plot_font(plt):
+    plt.rcParams["font.sans-serif"] = [
+        "Noto Sans CJK JP",
+        "DejaVu Sans",
+        "Droid Sans Fallback",
+    ]
+    plt.rcParams["axes.unicode_minus"] = False
 
 
 def _time_axis(rows, policy_dt):
@@ -657,7 +711,12 @@ def _plot_gait_stage_joint_energy_table(path, table_rows, joint_names, title):
         return
 
     plt = _load_pyplot()
-    columns = ["gait stage", *joint_names, "total"]
+    _configure_chinese_plot_font(plt)
+    localized_joint_names = [
+        f"{JOINT_NAMES_ZH.get(joint_name, joint_name)}\n（{joint_name}）"
+        for joint_name in joint_names
+    ]
+    columns = ["步态阶段", *localized_joint_names, "合计"]
     cell_text = []
     energy_values = []
     for row in table_rows:
@@ -665,23 +724,23 @@ def _plot_gait_stage_joint_energy_table(path, table_rows, joint_names, title):
         energy_values.extend(values)
         cell_text.append(
             [
-                row["stage"].replace("_", " "),
+                f"{GAIT_STAGE_NAMES_ZH.get(row['stage'], row['stage'])}\n{row['phase']}",
                 *[f"{value:.4f}" for value in values],
                 f"{row['total']:.4f}",
             ]
         )
 
-    fig, axis = plt.subplots(figsize=(22, 5.6))
+    fig, axis = plt.subplots(figsize=(22, 6.4))
     axis.axis("off")
     axis.set_title(title, pad=18, fontsize=14)
-    column_widths = [0.20, *([0.065] * len(joint_names)), 0.075]
+    column_widths = [0.21, *([0.064] * len(joint_names)), 0.075]
     table = axis.table(
         cellText=cell_text,
         colLabels=columns,
         cellLoc="center",
         colLoc="center",
         colWidths=column_widths,
-        bbox=(0.0, 0.10, 1.0, 0.82),
+        bbox=(0.0, 0.12, 1.0, 0.80),
     )
     table.auto_set_font_size(False)
     table.set_fontsize(8.5)
@@ -704,8 +763,9 @@ def _plot_gait_stage_joint_energy_table(path, table_rows, joint_names, title):
     axis.text(
         0.0,
         0.02,
-        "Energy definition: E_abs = E_positive + E_negative. "
-        "Values are phase-normalized mean energy per complete gait cycle (J/cycle).",
+        "能量定义：绝对机械能 E_abs = E_positive + E_negative。"
+        "数值为按相位归一化的每完整步态周期平均能量，单位：焦耳/周期（J/cycle）。"
+        "颜色越深表示能量越高。",
         transform=axis.transAxes,
         fontsize=9,
         ha="left",
@@ -851,7 +911,7 @@ def _write_report(
             "- `summary.csv`: per-episode metrics with energy per meter and stability proxies.",
             "- `episodes/episode_*.csv`: one time-series CSV per episode.",
             "- `representative_episodes.json`: machine-readable best/median/worst selection.",
-            "- `gait_stage_joint_energy.csv`: phase-normalized absolute joint energy by gait stage in J/cycle.",
+            "- `gait_stage_joint_energy.csv`：按步态阶段统计的关节绝对机械能，单位为焦耳/周期（J/cycle）。",
         ]
     )
     if plot_status == "ok":
@@ -859,7 +919,7 @@ def _write_report(
             [
                 "- `episode_first_velocity.png`, `episode_last_velocity.png`: velocity tracking for the first and last episodes; invalid reset-boundary samples are excluded.",
                 "- `gait_cycle_summary.png`: phase-averaged steady-state velocity, foot contacts, and ten-joint power over one gait cycle.",
-                "- `gait_stage_joint_energy.png`: visual table of absolute joint energy by gait stage.",
+                "- `gait_stage_joint_energy.png`：按步态阶段展示关节绝对机械能的中文可视化表格。",
                 "- `episode_best_curves.png`, `episode_median_curves.png`, `episode_worst_curves.png`: representative time-series plots.",
                 "- `joint_energy_contribution.png`: positive/negative joint energy for representatives.",
                 "",
@@ -944,10 +1004,18 @@ def generate_review(
         first_rows, metadata
     )
     if gait_energy_rows:
+        localized_gait_energy_rows, localized_joint_fields = (
+            _localized_gait_energy_rows(gait_energy_rows, gait_joint_names)
+        )
         _write_csv_dicts(
             os.path.join(output_dir, "gait_stage_joint_energy.csv"),
-            gait_energy_rows,
-            preferred_fields=["stage", "phase", *gait_joint_names, "total"],
+            localized_gait_energy_rows,
+            preferred_fields=[
+                "步态阶段",
+                "相位范围",
+                *localized_joint_fields,
+                "合计",
+            ],
         )
 
     representative_payload = {
@@ -995,8 +1063,15 @@ def generate_review(
                             ),
                             gait_energy_rows,
                             gait_joint_names,
-                            "Mean absolute joint energy by gait stage — "
-                            f"first episode {episode_id}",
+                            "按步态阶段统计的平均关节绝对机械能\n"
+                            "代价模式：{}（{}）｜第一个回合：{}".format(
+                                ENERGY_COST_MODE_NAMES_ZH.get(
+                                    metadata.get("energy_cost_mode"),
+                                    metadata.get("energy_cost_mode", "未知"),
+                                ),
+                                metadata.get("energy_cost_mode", "unknown"),
+                                episode_id,
+                            ),
                         )
             for rep in representatives:
                 episode_id = _to_int(rep["episode_id"])
