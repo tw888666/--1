@@ -13,6 +13,44 @@ from collections import defaultdict
 
 DEFAULT_METRIC = "e_mix_per_m"
 EPSILON_DISTANCE_M = 1e-8
+GAIT_STAGES = (
+    {
+        "stage": "left_touchdown_transfer",
+        "phase": "[0.95,1.00)+[0.00,0.05)",
+        "ranges": ((0.95, 1.0), (0.0, 0.05)),
+        "width": 0.10,
+    },
+    {
+        "stage": "left_early_stance_right_swing",
+        "phase": "[0.05,0.25)",
+        "ranges": ((0.05, 0.25),),
+        "width": 0.20,
+    },
+    {
+        "stage": "left_late_stance_right_placement",
+        "phase": "[0.25,0.45)",
+        "ranges": ((0.25, 0.45),),
+        "width": 0.20,
+    },
+    {
+        "stage": "right_touchdown_transfer",
+        "phase": "[0.45,0.55)",
+        "ranges": ((0.45, 0.55),),
+        "width": 0.10,
+    },
+    {
+        "stage": "right_early_stance_left_swing",
+        "phase": "[0.55,0.75)",
+        "ranges": ((0.55, 0.75),),
+        "width": 0.20,
+    },
+    {
+        "stage": "right_late_stance_left_placement",
+        "phase": "[0.75,0.95)",
+        "ranges": ((0.75, 0.95),),
+        "width": 0.20,
+    },
+)
 
 
 def _to_float(value, default=0.0):
@@ -152,6 +190,57 @@ def _phase_binned_series(rows, key, bins=50):
         for index in range(bins)
     ]
     return centers, values
+
+
+def _estimate_cycle_time(rows, policy_dt):
+    phase_steps = []
+    for previous, current in zip(rows, rows[1:]):
+        previous_phase = _to_float(previous.get("gait_phase"), default=math.nan)
+        current_phase = _to_float(current.get("gait_phase"), default=math.nan)
+        if not _finite(previous_phase) or not _finite(current_phase):
+            continue
+        phase_step = (current_phase - previous_phase) % 1.0
+        if 0.0 < phase_step < 0.25:
+            phase_steps.append(phase_step)
+    if not phase_steps:
+        return 0.55
+    return policy_dt / statistics.median(phase_steps)
+
+
+def build_gait_stage_joint_energy(rows, metadata):
+    rows = _steady_state_rows(rows)
+    if not rows:
+        return [], []
+
+    joint_names = list(metadata.get("joint_names") or [])
+    if not joint_names:
+        joint_names = [
+            column[: -len("_power")]
+            for column in _columns_with_suffix(rows, "_power", exclude="motor")
+        ]
+    policy_dt = _to_float(metadata.get("policy_dt"), default=0.01)
+    cycle_time = _estimate_cycle_time(rows, policy_dt)
+
+    table_rows = []
+    for stage in GAIT_STAGES:
+        stage_rows = []
+        for row in rows:
+            phase = _to_float(row.get("gait_phase"), default=math.nan) % 1.0
+            if any(start <= phase < end for start, end in stage["ranges"]):
+                stage_rows.append(row)
+
+        expected_steps = stage["width"] * cycle_time / policy_dt
+        table_row = {"stage": stage["stage"], "phase": stage["phase"]}
+        for joint_name in joint_names:
+            per_step_energy = [
+                _to_float(row.get(f"{joint_name}_positive_energy"))
+                + _to_float(row.get(f"{joint_name}_negative_energy"))
+                for row in stage_rows
+            ]
+            table_row[joint_name] = _mean(per_step_energy) * expected_steps
+        table_row["total"] = sum(table_row[joint_name] for joint_name in joint_names)
+        table_rows.append(table_row)
+    return table_rows, joint_names
 
 
 def _cumulative(rows, key):
@@ -563,6 +652,69 @@ def _plot_gait_cycle_summary(path, rows, metadata, title):
     plt.close(fig)
 
 
+def _plot_gait_stage_joint_energy_table(path, table_rows, joint_names, title):
+    if not table_rows or not joint_names:
+        return
+
+    plt = _load_pyplot()
+    columns = ["gait stage", *joint_names, "total"]
+    cell_text = []
+    energy_values = []
+    for row in table_rows:
+        values = [row[joint_name] for joint_name in joint_names]
+        energy_values.extend(values)
+        cell_text.append(
+            [
+                row["stage"].replace("_", " "),
+                *[f"{value:.4f}" for value in values],
+                f"{row['total']:.4f}",
+            ]
+        )
+
+    fig, axis = plt.subplots(figsize=(22, 5.6))
+    axis.axis("off")
+    axis.set_title(title, pad=18, fontsize=14)
+    column_widths = [0.20, *([0.065] * len(joint_names)), 0.075]
+    table = axis.table(
+        cellText=cell_text,
+        colLabels=columns,
+        cellLoc="center",
+        colLoc="center",
+        colWidths=column_widths,
+        bbox=(0.0, 0.10, 1.0, 0.82),
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(8.5)
+
+    energy_limit = max(energy_values, default=1.0) or 1.0
+    color_map = plt.get_cmap("YlOrRd")
+    for row_index, row in enumerate(table_rows, start=1):
+        table[(row_index, 0)].set_text_props(ha="left")
+        for column_index, joint_name in enumerate(joint_names, start=1):
+            normalized = row[joint_name] / energy_limit
+            table[(row_index, column_index)].set_facecolor(
+                color_map(0.08 + 0.82 * normalized)
+            )
+        table[(row_index, len(columns) - 1)].set_text_props(weight="bold")
+
+    for column_index in range(len(columns)):
+        table[(0, column_index)].set_facecolor("#d9e6f2")
+        table[(0, column_index)].set_text_props(weight="bold")
+
+    axis.text(
+        0.0,
+        0.02,
+        "Energy definition: E_abs = E_positive + E_negative. "
+        "Values are phase-normalized mean energy per complete gait cycle (J/cycle).",
+        transform=axis.transAxes,
+        fontsize=9,
+        ha="left",
+        va="bottom",
+    )
+    fig.savefig(path, dpi=160, bbox_inches="tight")
+    plt.close(fig)
+
+
 def _joint_names_from_metadata(metadata, summary_rows):
     joint_names = metadata.get("joint_names") or []
     if joint_names:
@@ -699,6 +851,7 @@ def _write_report(
             "- `summary.csv`: per-episode metrics with energy per meter and stability proxies.",
             "- `episodes/episode_*.csv`: one time-series CSV per episode.",
             "- `representative_episodes.json`: machine-readable best/median/worst selection.",
+            "- `gait_stage_joint_energy.csv`: phase-normalized absolute joint energy by gait stage in J/cycle.",
         ]
     )
     if plot_status == "ok":
@@ -706,6 +859,7 @@ def _write_report(
             [
                 "- `episode_first_velocity.png`, `episode_last_velocity.png`: velocity tracking for the first and last episodes; invalid reset-boundary samples are excluded.",
                 "- `gait_cycle_summary.png`: phase-averaged steady-state velocity, foot contacts, and ten-joint power over one gait cycle.",
+                "- `gait_stage_joint_energy.png`: visual table of absolute joint energy by gait stage.",
                 "- `episode_best_curves.png`, `episode_median_curves.png`, `episode_worst_curves.png`: representative time-series plots.",
                 "- `joint_energy_contribution.png`: positive/negative joint energy for representatives.",
                 "",
@@ -777,6 +931,25 @@ def generate_review(
     if write_episode_csvs:
         _write_episode_csvs(output_dir, grouped_steps, metadata)
 
+    first_episode_id = min(grouped_steps) if grouped_steps else None
+    first_rows = (
+        _add_time_column(
+            grouped_steps[first_episode_id],
+            _to_float(metadata.get("policy_dt"), default=0.01),
+        )
+        if first_episode_id is not None
+        else []
+    )
+    gait_energy_rows, gait_joint_names = build_gait_stage_joint_energy(
+        first_rows, metadata
+    )
+    if gait_energy_rows:
+        _write_csv_dicts(
+            os.path.join(output_dir, "gait_stage_joint_energy.csv"),
+            gait_energy_rows,
+            preferred_fields=["stage", "phase", *gait_joint_names, "total"],
+        )
+
     representative_payload = {
         "eval_dir": eval_dir,
         "report_dir": output_dir,
@@ -814,6 +987,16 @@ def generate_review(
                             rows,
                             metadata,
                             f"steady gait cycle — first episode {episode_id}",
+                        )
+                        _plot_gait_stage_joint_energy_table(
+                            os.path.join(
+                                output_dir,
+                                "gait_stage_joint_energy.png",
+                            ),
+                            gait_energy_rows,
+                            gait_joint_names,
+                            "Mean absolute joint energy by gait stage — "
+                            f"first episode {episode_id}",
                         )
             for rep in representatives:
                 episode_id = _to_int(rep["episode_id"])

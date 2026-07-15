@@ -8,6 +8,7 @@ from bruce_gym.eval_review import (
     _dynamic_state_rows,
     _phase_binned_series,
     _steady_state_rows,
+    build_gait_stage_joint_energy,
     generate_review,
     select_representatives,
 )
@@ -29,6 +30,30 @@ def _write_csv(path, rows):
 
 
 class EvalReviewTests(unittest.TestCase):
+    def test_gait_stage_joint_energy_is_normalized_per_cycle(self):
+        rows = [
+            {
+                "time_s": str(index * 0.1),
+                "gait_phase": str(index * 0.1),
+                "hip_pitch_l_positive_energy": "2.0",
+                "hip_pitch_l_negative_energy": "1.0",
+                "pre_step_dynamic_state_valid": "1",
+            }
+            for index in range(10)
+        ]
+
+        table_rows, joint_names = build_gait_stage_joint_energy(
+            rows,
+            {"policy_dt": 0.1, "joint_names": ["hip_pitch_l"]},
+        )
+
+        self.assertEqual(joint_names, ["hip_pitch_l"])
+        self.assertAlmostEqual(table_rows[0]["hip_pitch_l"], 3.0)
+        self.assertAlmostEqual(
+            sum(row["hip_pitch_l"] for row in table_rows),
+            30.0,
+        )
+
     def test_steady_phase_series_uses_middle_third_and_wraps_phase(self):
         rows = [
             {
