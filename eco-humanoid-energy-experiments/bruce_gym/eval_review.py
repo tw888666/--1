@@ -273,8 +273,7 @@ def build_gait_stage_joint_energy(rows, metadata):
 def _localized_gait_energy_rows(table_rows, joint_names):
     localized_rows = []
     localized_joint_fields = [
-        f"{JOINT_NAMES_ZH.get(joint_name, joint_name)}（{joint_name}）"
-        for joint_name in joint_names
+        JOINT_NAMES_ZH.get(joint_name, joint_name) for joint_name in joint_names
     ]
     for row in table_rows:
         localized_row = {
@@ -713,8 +712,7 @@ def _plot_gait_stage_joint_energy_table(path, table_rows, joint_names, title):
     plt = _load_pyplot()
     _configure_chinese_plot_font(plt)
     localized_joint_names = [
-        f"{JOINT_NAMES_ZH.get(joint_name, joint_name)}\n（{joint_name}）"
-        for joint_name in joint_names
+        JOINT_NAMES_ZH.get(joint_name, joint_name) for joint_name in joint_names
     ]
     columns = ["步态阶段", *localized_joint_names, "合计"]
     cell_text = []
@@ -763,8 +761,8 @@ def _plot_gait_stage_joint_energy_table(path, table_rows, joint_names, title):
     axis.text(
         0.0,
         0.02,
-        "能量定义：绝对机械能 E_abs = E_positive + E_negative。"
-        "数值为按相位归一化的每完整步态周期平均能量，单位：焦耳/周期（J/cycle）。"
+        "能量定义：绝对机械能＝正向机械能＋负向机械能。"
+        "数值为按相位归一化的每完整步态周期平均能量，单位：焦耳/周期。"
         "颜色越深表示能量越高。",
         transform=axis.transAxes,
         fontsize=9,
@@ -911,7 +909,7 @@ def _write_report(
             "- `summary.csv`: per-episode metrics with energy per meter and stability proxies.",
             "- `episodes/episode_*.csv`: one time-series CSV per episode.",
             "- `representative_episodes.json`: machine-readable best/median/worst selection.",
-            "- `gait_stage_joint_energy.csv`：按步态阶段统计的关节绝对机械能，单位为焦耳/周期（J/cycle）。",
+            "- `gait_stage_joint_energy.csv`、`gait_stage_joint_energy_zh.csv`：按步态阶段统计的关节绝对机械能中文版，单位为焦耳/周期。",
         ]
     )
     if plot_status == "ok":
@@ -919,7 +917,7 @@ def _write_report(
             [
                 "- `episode_first_velocity.png`, `episode_last_velocity.png`: velocity tracking for the first and last episodes; invalid reset-boundary samples are excluded.",
                 "- `gait_cycle_summary.png`: phase-averaged steady-state velocity, foot contacts, and ten-joint power over one gait cycle.",
-                "- `gait_stage_joint_energy.png`：按步态阶段展示关节绝对机械能的中文可视化表格。",
+                "- `gait_stage_joint_energy.png`、`gait_stage_joint_energy_zh.png`：按步态阶段展示关节绝对机械能的中文可视化表格。",
                 "- `episode_best_curves.png`, `episode_median_curves.png`, `episode_worst_curves.png`: representative time-series plots.",
                 "- `joint_energy_contribution.png`: positive/negative joint energy for representatives.",
                 "",
@@ -1007,16 +1005,20 @@ def generate_review(
         localized_gait_energy_rows, localized_joint_fields = (
             _localized_gait_energy_rows(gait_energy_rows, gait_joint_names)
         )
-        _write_csv_dicts(
-            os.path.join(output_dir, "gait_stage_joint_energy.csv"),
-            localized_gait_energy_rows,
-            preferred_fields=[
-                "步态阶段",
-                "相位范围",
-                *localized_joint_fields,
-                "合计",
-            ],
-        )
+        for filename in (
+            "gait_stage_joint_energy.csv",
+            "gait_stage_joint_energy_zh.csv",
+        ):
+            _write_csv_dicts(
+                os.path.join(output_dir, filename),
+                localized_gait_energy_rows,
+                preferred_fields=[
+                    "步态阶段",
+                    "相位范围",
+                    *localized_joint_fields,
+                    "合计",
+                ],
+            )
 
     representative_payload = {
         "eval_dir": eval_dir,
@@ -1056,23 +1058,23 @@ def generate_review(
                             metadata,
                             f"steady gait cycle — first episode {episode_id}",
                         )
-                        _plot_gait_stage_joint_energy_table(
-                            os.path.join(
-                                output_dir,
-                                "gait_stage_joint_energy.png",
-                            ),
-                            gait_energy_rows,
-                            gait_joint_names,
-                            "按步态阶段统计的平均关节绝对机械能\n"
-                            "代价模式：{}（{}）｜第一个回合：{}".format(
-                                ENERGY_COST_MODE_NAMES_ZH.get(
-                                    metadata.get("energy_cost_mode"),
-                                    metadata.get("energy_cost_mode", "未知"),
+                        for filename in (
+                            "gait_stage_joint_energy.png",
+                            "gait_stage_joint_energy_zh.png",
+                        ):
+                            _plot_gait_stage_joint_energy_table(
+                                os.path.join(output_dir, filename),
+                                gait_energy_rows,
+                                gait_joint_names,
+                                "按步态阶段统计的平均关节绝对机械能\n"
+                                "代价模式：{}｜第一个回合：{}".format(
+                                    ENERGY_COST_MODE_NAMES_ZH.get(
+                                        metadata.get("energy_cost_mode"),
+                                        "未知代价模式",
+                                    ),
+                                    episode_id,
                                 ),
-                                metadata.get("energy_cost_mode", "unknown"),
-                                episode_id,
-                            ),
-                        )
+                            )
             for rep in representatives:
                 episode_id = _to_int(rep["episode_id"])
                 rows = _add_time_column(

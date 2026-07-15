@@ -58,7 +58,7 @@ class EvalReviewTests(unittest.TestCase):
             table_rows, joint_names
         )
         self.assertEqual(localized_rows[0]["步态阶段"], "左脚落地与重心转移")
-        self.assertEqual(localized_joint_fields, ["左髋俯仰（hip_pitch_l）"])
+        self.assertEqual(localized_joint_fields, ["左髋俯仰"])
 
     def test_steady_phase_series_uses_middle_third_and_wraps_phase(self):
         rows = [
