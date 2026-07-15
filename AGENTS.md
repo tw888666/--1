@@ -1,65 +1,23 @@
 # AGENTS.md
 
 ## Scope
-
-This file applies to the current project rooted .
-More specific `AGENTS.md` files in subdirectories override these rules for their own scope.
-
-## Current Workspace Layout
-
-- Main working project directory: `eco-humanoid-energy-experiments/`.
-- Old directory name `ECO-humanoid-main/` has been renamed. Do not assume that old path exists.
-- Reference papers currently live at the workspace root next to this `AGENTS.md`.
-- Main experiment notes live at `eco-humanoid-energy-experiments/改进阶段.md`.
-
-Important organized result directories:
-
-```text
-eco-humanoid-energy-experiments/
-  energy_calibrations/
-    train_dist_vx010/
-      model4000_keepopt/
-        rotor_positive_8/seed0..seed5/
-        rotor_abs_8/seed0..seed5/
-        joint_positive_8/seed0..seed5/
-        legacy_joint_abs_10/seed0..seed5/
-  energy_evaluations/
-    fixed_command_vx010_20ep/
-      model4000_keepopt/
-        rotor_positive_8/seed0..seed5/
-        rotor_abs_8/seed0..seed5/
-        joint_positive_8/seed0..seed5/
-        legacy_joint_abs_10/seed0..seed5/
-  reports/
-    vx010_seed0_controls/
-```
-
-`energy_calibrations/` contains training-distribution cost calibration outputs. `energy_evaluations/fixed_command_vx010_20ep/` contains fixed-command evaluation outputs for `command_x = 0.10 m/s` and 20 episodes. `reports/` contains derived HTML/CSV/PNG report artifacts.
-
-For the fixed-command evaluation seed directories, expect:
-
-```text
-metadata.json
-episode_summary.csv
-phase_summary.csv
-step_timeseries.csv
-```
-
-For the calibration seed directories, expect:
-
-```text
-metadata.json
-episode_costs.csv
-calibration_summary.json
-```
-
-Do not delete `tests/`; they protect the energy-cost modes and calibration logic. Temporary run logs such as `*.log`, `nohup.out`, and `night_logs/` are disposable unless the user explicitly wants to preserve them.
+这是/home/xy.chen/tw/ECO-humanoid-remote/eco-humanoid-energy-experiments项目的开发规范，主要针对 Isaac Gym（NVIDIA 物理仿真平台）相关的训练、评估和调试代码。
+python环境为conda里的bruce_gym
 
 ## Language
 
 - 默认使用中文回复，并称呼用户为 `nullptr`。
 - English terms must include Chinese meaning on first use, for example GitHub（代码托管平台）, Git（版本控制系统）, branch（分支）, commit（提交）, and push（推送）。
 - 不确定时必须明确说明不确定点，不要编造不存在的文件、接口、命令或结果。
+- 生成的各种数据文件，png，csv，md等，尽量使用中文描述，如是英语专业名称，旁边需要附上中文解释。
+
+## Environment
+- 本机是 Ubuntu 22.04服务器，使用 NVIDIA GPU 进行 Isaac Gym 训练和评估。无GUI环境，使用 SSH 远程连接。
+- 除非我主动要求，否则不要用命令行帮我运行需要gpu的代码，所有需要gpu训练的代码运行必须由我本人在本机终端执行。只需要教我怎么使用命令行运行，我会在终端复制粘贴。
+- 对于不需要gpu训练的代码，可以在本机终端直接运行。例如查看log日志，ps等代码直接运行。
+- 给出的命令行尽量不要用export，选定显卡应该在命令行中直接指定CUDA_VISIBLE_DEVICES，而不是在~/.bashrc或~/.zshrc中设置。
+- 命令行有修改变动，应该跟我说明改动会影响什么，特别是会不会影响训练出来的模型权重。
+- 该服务器上的gpu5无法使用。gpu0和gpu1是A100。gpu2-4是V100。
 
 ## GitHub Sync Requirement
 
