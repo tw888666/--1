@@ -1,0 +1,10 @@
+# Markdown 文档默认作为本地记录，不进入 Git
+*.md
+*.MD
+
+# 只保留项目规范和 README 说明文件
+!AGENTS.md
+!README.md
+!README.MD
+!**/README.md
+!**/README.MD
