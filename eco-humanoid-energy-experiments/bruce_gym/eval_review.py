@@ -89,6 +89,16 @@ def _to_float(value, default=0.0):
         return default
 
 
+def _evaluation_variant_description(metadata):
+    parts = []
+    phase_offset = _to_float(metadata.get("gait_phase_offset"), default=0.0) % 1.0
+    if abs(phase_offset) > 1e-9:
+        parts.append(f"步态相位偏移：{phase_offset:g}周期")
+    if metadata.get("mirrored_policy"):
+        parts.append("策略：左右镜像策略")
+    return "｜".join(parts)
+
+
 def _to_int(value, default=0):
     try:
         return int(float(value))
@@ -121,7 +131,7 @@ def _rms(values, default=0.0):
 
 
 def _read_csv_dicts(path):
-    with open(path, newline="") as csvfile:
+    with open(path, encoding="utf-8", newline="") as csvfile:
         return list(csv.DictReader(csvfile))
 
 
@@ -139,7 +149,7 @@ def _write_csv_dicts(path, rows, preferred_fields=None):
                 seen.add(field)
                 fields.append(field)
 
-    with open(path, "w", newline="") as csvfile:
+    with open(path, "w", encoding="utf-8", newline="") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fields)
         writer.writeheader()
         for row in rows:
@@ -149,7 +159,7 @@ def _write_csv_dicts(path, rows, preferred_fields=None):
 def _read_metadata(path):
     if not os.path.exists(path):
         return {}
-    with open(path) as jsonfile:
+    with open(path, encoding="utf-8") as jsonfile:
         return json.load(jsonfile)
 
 
@@ -875,6 +885,8 @@ def _write_report(
         f"- load_run: `{metadata.get('load_run', 'unknown')}`",
         f"- checkpoint: `{metadata.get('checkpoint', 'unknown')}`",
         f"- command_x: `{metadata.get('command_x', 'unknown')}`",
+        f"- 步态相位偏移: `{_to_float(metadata.get('gait_phase_offset'), 0.0):g}` 周期",
+        f"- 镜像策略评估: `{'是' if metadata.get('mirrored_policy') else '否'}`",
         "",
         "## Summary",
         "",
@@ -962,7 +974,7 @@ def _write_report(
         ]
     )
 
-    with open(path, "w") as report_file:
+    with open(path, "w", encoding="utf-8") as report_file:
         report_file.write("\n".join(lines))
 
 
@@ -1026,7 +1038,11 @@ def generate_review(
         "selection_metric": metric,
         "representatives": representatives,
     }
-    with open(os.path.join(output_dir, "representative_episodes.json"), "w") as jsonfile:
+    with open(
+        os.path.join(output_dir, "representative_episodes.json"),
+        "w",
+        encoding="utf-8",
+    ) as jsonfile:
         json.dump(representative_payload, jsonfile, indent=2)
 
     plot_status = "skipped"
@@ -1052,6 +1068,7 @@ def generate_review(
                         f"{boundary_label} episode {episode_id}",
                     )
                     if boundary_label == "first":
+                        evaluation_variant = _evaluation_variant_description(metadata)
                         _plot_gait_cycle_summary(
                             os.path.join(output_dir, "gait_cycle_summary.png"),
                             rows,
@@ -1073,6 +1090,11 @@ def generate_review(
                                         "未知代价模式",
                                     ),
                                     episode_id,
+                                )
+                                + (
+                                    f"\n实验设置：{evaluation_variant}"
+                                    if evaluation_variant
+                                    else ""
                                 ),
                             )
             for rep in representatives:
@@ -1096,7 +1118,11 @@ def generate_review(
             )
             plot_status = "ok"
         except ImportError as exc:
-            with open(os.path.join(output_dir, "plot_status.txt"), "w") as status_file:
+            with open(
+                os.path.join(output_dir, "plot_status.txt"),
+                "w",
+                encoding="utf-8",
+            ) as status_file:
                 status_file.write(f"matplotlib unavailable: {exc}\n")
             plot_status = "unavailable"
 

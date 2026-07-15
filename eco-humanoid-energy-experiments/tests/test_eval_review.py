@@ -3,12 +3,15 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 from bruce_gym.eval_review import (
     _dynamic_state_rows,
+    _evaluation_variant_description,
     _localized_gait_energy_rows,
     _phase_binned_series,
     _steady_state_rows,
+    _write_csv_dicts,
     build_gait_stage_joint_energy,
     generate_review,
     select_representatives,
@@ -31,6 +34,23 @@ def _write_csv(path, rows):
 
 
 class EvalReviewTests(unittest.TestCase):
+    def test_evaluation_variant_description_is_chinese(self):
+        self.assertEqual(
+            _evaluation_variant_description(
+                {"gait_phase_offset": 0.5, "mirrored_policy": True}
+            ),
+            "步态相位偏移：0.5周期｜策略：左右镜像策略",
+        )
+
+    def test_csv_writer_explicitly_uses_utf8_for_chinese_headers(self):
+        mocked_open = mock.mock_open()
+        with mock.patch("builtins.open", mocked_open):
+            _write_csv_dicts("/tmp/table.csv", [{"步态阶段": "左腿支撑"}])
+
+        mocked_open.assert_called_once_with(
+            "/tmp/table.csv", "w", encoding="utf-8", newline=""
+        )
+
     def test_gait_stage_joint_energy_is_normalized_per_cycle(self):
         rows = [
             {
