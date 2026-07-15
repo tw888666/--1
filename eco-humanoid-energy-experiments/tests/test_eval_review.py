@@ -6,6 +6,8 @@ import unittest
 
 from bruce_gym.eval_review import (
     _dynamic_state_rows,
+    _phase_binned_series,
+    _steady_state_rows,
     generate_review,
     select_representatives,
 )
@@ -27,6 +29,30 @@ def _write_csv(path, rows):
 
 
 class EvalReviewTests(unittest.TestCase):
+    def test_steady_phase_series_uses_middle_third_and_wraps_phase(self):
+        rows = [
+            {
+                "time_s": str(time_s),
+                "gait_phase": str(phase),
+                "base_vel_x": str(value),
+                "pre_step_dynamic_state_valid": "1",
+            }
+            for time_s, phase, value in [
+                (0.0, 0.0, 10.0),
+                (3.0, 0.25, 20.0),
+                (4.0, 1.25, 30.0),
+                (6.0, 0.75, 40.0),
+                (9.0, 0.0, 50.0),
+            ]
+        ]
+
+        steady_rows = _steady_state_rows(rows)
+        _, values = _phase_binned_series(steady_rows, "base_vel_x", bins=4)
+
+        self.assertEqual(steady_rows, rows[1:4])
+        self.assertEqual(values[1], 25.0)
+        self.assertEqual(values[3], 40.0)
+
     def test_dynamic_state_rows_excludes_stale_reset_boundary_sample(self):
         rows = [
             {"episode_step": 0, "pre_step_dynamic_state_valid": "0", "base_vel_x": "0.2"},

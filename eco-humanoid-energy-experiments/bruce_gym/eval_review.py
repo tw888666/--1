@@ -109,6 +109,51 @@ def _dynamic_state_rows(rows):
     ]
 
 
+def _steady_state_rows(rows):
+    rows = _dynamic_state_rows(rows)
+    timed_rows = [
+        row
+        for row in rows
+        if _finite(_to_float(row.get("time_s"), default=math.nan))
+    ]
+    if len(timed_rows) < 3:
+        return timed_rows
+
+    start_time = _to_float(timed_rows[0].get("time_s"))
+    end_time = _to_float(timed_rows[-1].get("time_s"))
+    duration = end_time - start_time
+    if duration < 6.0:
+        return timed_rows
+
+    steady_start = start_time + duration / 3.0
+    steady_end = start_time + 2.0 * duration / 3.0
+    steady_rows = [
+        row
+        for row in timed_rows
+        if steady_start <= _to_float(row.get("time_s")) <= steady_end
+    ]
+    return steady_rows or timed_rows
+
+
+def _phase_binned_series(rows, key, bins=50):
+    totals = [0.0] * bins
+    counts = [0] * bins
+    for row in rows:
+        phase = _to_float(row.get("gait_phase"), default=math.nan)
+        value = _to_float(row.get(key), default=math.nan)
+        if not _finite(phase) or not _finite(value):
+            continue
+        bin_index = min(int((phase % 1.0) * bins), bins - 1)
+        totals[bin_index] += value
+        counts[bin_index] += 1
+    centers = [(index + 0.5) / bins for index in range(bins)]
+    values = [
+        totals[index] / counts[index] if counts[index] else math.nan
+        for index in range(bins)
+    ]
+    return centers, values
+
+
 def _cumulative(rows, key):
     total = 0.0
     values = []
@@ -410,6 +455,114 @@ def _plot_episode_velocity(path, rows, metadata, title):
     plt.close(fig)
 
 
+def _plot_gait_cycle_summary(path, rows, metadata, title):
+    plt = _load_pyplot()
+    rows = _steady_state_rows(rows)
+    if not rows:
+        return
+
+    phase, velocity = _phase_binned_series(rows, "base_vel_x")
+    _, command = _phase_binned_series(rows, "command_x")
+    _, left_contact = _phase_binned_series(rows, "left_contact_state")
+    _, right_contact = _phase_binned_series(rows, "right_contact_state")
+
+    joint_names = list(metadata.get("joint_names") or [])
+    if not joint_names:
+        joint_names = [
+            column[: -len("_power")]
+            for column in _columns_with_suffix(rows, "_power", exclude="motor")
+        ]
+    joint_power = [
+        _phase_binned_series(rows, f"{joint_name}_power")[1]
+        for joint_name in joint_names
+    ]
+
+    fig, axes = plt.subplots(
+        3,
+        1,
+        figsize=(12, 10),
+        sharex=True,
+        gridspec_kw={"height_ratios": [1.2, 1.0, 2.4]},
+    )
+    fig.suptitle(title)
+
+    axes[0].axvspan(0.0, 0.5, color="tab:blue", alpha=0.08)
+    axes[0].axvspan(0.5, 1.0, color="tab:orange", alpha=0.08)
+    axes[0].plot(phase, velocity, label="phase-mean base_vel_x", linewidth=2.0)
+    axes[0].plot(phase, command, label="command_x", linewidth=1.8)
+    axes[0].text(
+        0.25,
+        0.94,
+        "left stance / right swing",
+        ha="center",
+        va="top",
+        transform=axes[0].get_xaxis_transform(),
+    )
+    axes[0].text(
+        0.75,
+        0.94,
+        "right stance / left swing",
+        ha="center",
+        va="top",
+        transform=axes[0].get_xaxis_transform(),
+    )
+    axes[0].set_ylabel("velocity (m/s)")
+    axes[0].legend(loc="lower right")
+    axes[0].grid(True, alpha=0.3)
+
+    axes[1].plot(
+        phase,
+        left_contact,
+        label="left contact",
+        linewidth=2.0,
+        drawstyle="steps-mid",
+    )
+    axes[1].plot(
+        phase,
+        right_contact,
+        label="right contact",
+        linewidth=2.0,
+        drawstyle="steps-mid",
+    )
+    axes[1].set_ylim(-0.05, 1.05)
+    axes[1].set_ylabel("contact probability")
+    axes[1].legend(loc="center right")
+    axes[1].grid(True, alpha=0.3)
+
+    if joint_power:
+        finite_power = [
+            abs(value)
+            for series in joint_power
+            for value in series
+            if _finite(value)
+        ]
+        power_limit = max(finite_power, default=1.0) or 1.0
+        image = axes[2].imshow(
+            joint_power,
+            aspect="auto",
+            interpolation="nearest",
+            cmap="coolwarm",
+            vmin=-power_limit,
+            vmax=power_limit,
+            extent=(0.0, 1.0, len(joint_names) - 0.5, -0.5),
+        )
+        axes[2].set_yticks(range(len(joint_names)))
+        axes[2].set_yticklabels(joint_names)
+        colorbar = fig.colorbar(image, ax=axes[2], pad=0.01)
+        colorbar.set_label("joint power (W): red=drive, blue=brake")
+    axes[2].set_xlabel("gait phase (one cycle = 0.55 s)")
+    axes[2].set_ylabel("joint")
+
+    for axis in axes:
+        axis.axvline(0.5, color="black", linewidth=1.0, linestyle="--", alpha=0.6)
+        axis.set_xlim(0.0, 1.0)
+    axes[2].set_xticks([0.0, 0.25, 0.5, 0.75, 1.0])
+
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.97))
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
+
+
 def _joint_names_from_metadata(metadata, summary_rows):
     joint_names = metadata.get("joint_names") or []
     if joint_names:
@@ -552,6 +705,7 @@ def _write_report(
         lines.extend(
             [
                 "- `episode_first_velocity.png`, `episode_last_velocity.png`: velocity tracking for the first and last episodes; invalid reset-boundary samples are excluded.",
+                "- `gait_cycle_summary.png`: phase-averaged steady-state velocity, foot contacts, and ten-joint power over one gait cycle.",
                 "- `episode_best_curves.png`, `episode_median_curves.png`, `episode_worst_curves.png`: representative time-series plots.",
                 "- `joint_energy_contribution.png`: positive/negative joint energy for representatives.",
                 "",
@@ -654,6 +808,13 @@ def generate_review(
                         metadata,
                         f"{boundary_label} episode {episode_id}",
                     )
+                    if boundary_label == "first":
+                        _plot_gait_cycle_summary(
+                            os.path.join(output_dir, "gait_cycle_summary.png"),
+                            rows,
+                            metadata,
+                            f"steady gait cycle — first episode {episode_id}",
+                        )
             for rep in representatives:
                 episode_id = _to_int(rep["episode_id"])
                 rows = _add_time_column(
