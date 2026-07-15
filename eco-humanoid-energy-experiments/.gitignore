@@ -83,3 +83,17 @@ plot/*.png
 
 plot/plot_rebuttal/*.pdf
 plot/plot_rebuttal/*.png
+
+# 训练和评估生成结果：默认不进入 Git，只保留目录说明文件
+energy_evaluations/*
+!energy_evaluations/README.md
+
+energy_calibrations/*
+!energy_calibrations/README.md
+
+# 本地汇总报告、预训练权重和模型导出文件
+reports/
+pretrained_weights/
+*.pt
+*.pth
+*.onnx
