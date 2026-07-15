@@ -551,7 +551,7 @@ def _write_report(
     if plot_status == "ok":
         lines.extend(
             [
-                "- `episode_first_velocity.png`: velocity tracking for the first episode; invalid reset-boundary samples are excluded.",
+                "- `episode_first_velocity.png`, `episode_last_velocity.png`: velocity tracking for the first and last episodes; invalid reset-boundary samples are excluded.",
                 "- `episode_best_curves.png`, `episode_median_curves.png`, `episode_worst_curves.png`: representative time-series plots.",
                 "- `joint_energy_contribution.png`: positive/negative joint energy for representatives.",
                 "",
@@ -636,17 +636,24 @@ def generate_review(
     if make_plots:
         try:
             if grouped_steps:
-                first_episode_id = min(grouped_steps)
-                first_rows = _add_time_column(
-                    grouped_steps[first_episode_id],
-                    _to_float(metadata.get("policy_dt"), default=0.01),
+                boundary_episodes = (
+                    ("first", min(grouped_steps)),
+                    ("last", max(grouped_steps)),
                 )
-                _plot_episode_velocity(
-                    os.path.join(output_dir, "episode_first_velocity.png"),
-                    first_rows,
-                    metadata,
-                    f"first episode {first_episode_id}",
-                )
+                for boundary_label, episode_id in boundary_episodes:
+                    rows = _add_time_column(
+                        grouped_steps[episode_id],
+                        _to_float(metadata.get("policy_dt"), default=0.01),
+                    )
+                    _plot_episode_velocity(
+                        os.path.join(
+                            output_dir,
+                            f"episode_{boundary_label}_velocity.png",
+                        ),
+                        rows,
+                        metadata,
+                        f"{boundary_label} episode {episode_id}",
+                    )
             for rep in representatives:
                 episode_id = _to_int(rep["episode_id"])
                 rows = _add_time_column(
