@@ -97,3 +97,7 @@ pretrained_weights/
 *.pt
 *.pth
 *.onnx
+
+# 本地手动备份的 Markdown 副本，不随分支切换
+vx0.2对比结果 copy.md
+vx0.2对比结果-副本.md
