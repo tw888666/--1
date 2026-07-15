@@ -99,6 +99,16 @@ def _row_series(rows, key):
     return [_to_float(row.get(key), default=math.nan) for row in rows]
 
 
+def _dynamic_state_rows(rows):
+    if not any("pre_step_dynamic_state_valid" in row for row in rows):
+        return rows
+    return [
+        row
+        for row in rows
+        if _to_float(row.get("pre_step_dynamic_state_valid")) > 0.5
+    ]
+
+
 def _cumulative(rows, key):
     total = 0.0
     values = []
@@ -319,8 +329,18 @@ def _plot_episode_curves(path, rows, metadata, title):
     fig, axes = plt.subplots(4, 1, figsize=(12, 11), sharex=True)
     fig.suptitle(title)
 
-    axes[0].plot(time_axis, _row_series(rows, "base_vel_x"), label="base_vel_x")
-    axes[0].plot(time_axis, _row_series(rows, "command_x"), label="command_x")
+    velocity_rows = _dynamic_state_rows(rows)
+    velocity_time_axis = _time_axis(velocity_rows, policy_dt)
+    axes[0].plot(
+        velocity_time_axis,
+        _row_series(velocity_rows, "base_vel_x"),
+        label="base_vel_x",
+    )
+    axes[0].plot(
+        velocity_time_axis,
+        _row_series(velocity_rows, "command_x"),
+        label="command_x",
+    )
     axes[0].set_ylabel("m/s")
     axes[0].legend(loc="best")
     axes[0].grid(True, alpha=0.3)
@@ -366,6 +386,25 @@ def _plot_episode_curves(path, rows, metadata, title):
     axes[3].legend(loc="best")
     axes[3].grid(True, alpha=0.3)
 
+    fig.tight_layout()
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
+
+
+def _plot_episode_velocity(path, rows, metadata, title):
+    plt = _load_pyplot()
+    policy_dt = _to_float(metadata.get("policy_dt"), default=0.01)
+    rows = _dynamic_state_rows(rows)
+    time_axis = _time_axis(rows, policy_dt)
+
+    fig, axis = plt.subplots(figsize=(12, 4))
+    axis.plot(time_axis, _row_series(rows, "base_vel_x"), label="base_vel_x")
+    axis.plot(time_axis, _row_series(rows, "command_x"), label="command_x")
+    axis.set_title(title)
+    axis.set_xlabel("time (s)")
+    axis.set_ylabel("m/s")
+    axis.legend(loc="best")
+    axis.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(path, dpi=160)
     plt.close(fig)
@@ -512,6 +551,7 @@ def _write_report(
     if plot_status == "ok":
         lines.extend(
             [
+                "- `episode_first_velocity.png`: velocity tracking for the first episode; invalid reset-boundary samples are excluded.",
                 "- `episode_best_curves.png`, `episode_median_curves.png`, `episode_worst_curves.png`: representative time-series plots.",
                 "- `joint_energy_contribution.png`: positive/negative joint energy for representatives.",
                 "",
@@ -595,6 +635,18 @@ def generate_review(
     plot_status = "skipped"
     if make_plots:
         try:
+            if grouped_steps:
+                first_episode_id = min(grouped_steps)
+                first_rows = _add_time_column(
+                    grouped_steps[first_episode_id],
+                    _to_float(metadata.get("policy_dt"), default=0.01),
+                )
+                _plot_episode_velocity(
+                    os.path.join(output_dir, "episode_first_velocity.png"),
+                    first_rows,
+                    metadata,
+                    f"first episode {first_episode_id}",
+                )
             for rep in representatives:
                 episode_id = _to_int(rep["episode_id"])
                 rows = _add_time_column(

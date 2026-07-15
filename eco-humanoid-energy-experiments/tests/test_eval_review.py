@@ -4,7 +4,11 @@ import os
 import tempfile
 import unittest
 
-from bruce_gym.eval_review import generate_review, select_representatives
+from bruce_gym.eval_review import (
+    _dynamic_state_rows,
+    generate_review,
+    select_representatives,
+)
 
 
 def _write_csv(path, rows):
@@ -23,6 +27,14 @@ def _write_csv(path, rows):
 
 
 class EvalReviewTests(unittest.TestCase):
+    def test_dynamic_state_rows_excludes_stale_reset_boundary_sample(self):
+        rows = [
+            {"episode_step": 0, "pre_step_dynamic_state_valid": "0", "base_vel_x": "0.2"},
+            {"episode_step": 1, "pre_step_dynamic_state_valid": "1", "base_vel_x": "0.0"},
+        ]
+
+        self.assertEqual(_dynamic_state_rows(rows), [rows[1]])
+
     def test_select_representatives_prefers_successful_metric_and_falls_for_worst(self):
         rows = [
             {"episode_id": 0, "success": 1.0, "fall": 0.0, "e_mix_per_m": 3.0},
