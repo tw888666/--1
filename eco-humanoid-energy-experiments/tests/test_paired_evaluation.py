@@ -230,6 +230,16 @@ class PipelineConstructionTests(unittest.TestCase):
         self.assertEqual(jobs[0]["id"], "baseline_s0")
         self.assertEqual(jobs[1]["id"], "rp8_s0")
         self.assertEqual(jobs[6]["id"], "baseline_s1")
+        self.assertTrue(
+            jobs[0]["output_dir"].endswith(
+                "energy_calibrations/paired100/vx020_rp8_s00_model3000"
+            )
+        )
+        self.assertTrue(
+            jobs[4]["output_dir"].endswith(
+                "energy_calibrations/paired100/vx020_ja8_s00_model4001"
+            )
+        )
 
     def test_command_locks_vx_seed_gpu_local_device_and_output(self):
         job = {

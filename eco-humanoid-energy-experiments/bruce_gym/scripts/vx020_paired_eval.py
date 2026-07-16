@@ -14,6 +14,7 @@ import sys
 import time
 from pathlib import Path
 
+from bruce_gym.naming import policy_id
 from bruce_gym.paired_evaluation import (
     build_paired_summary,
     validate_calibration_output,
@@ -34,7 +35,7 @@ SUMMARY_MD_PATH = WORKFLOW_DIR / "summary.md"
 
 SOURCE_PIPELINE_SUMMARY = ROOT / "workflow_runs" / "vx020_seed0" / "summary.json"
 BASE_RUN = ROOT / "pretrained_weights" / "eco_ppolag_0.2vel_8000cost_seed123"
-OUTPUT_ROOT = ROOT / "energy_calibrations" / "paired_vx020"
+OUTPUT_ROOT = ROOT / "energy_calibrations" / "paired100"
 
 TARGET_COMMAND_X = 0.2
 CALIBRATION_EPISODES = 100
@@ -139,15 +140,14 @@ def load_control_run_dirs(summary_path=SOURCE_PIPELINE_SUMMARY):
 
 
 def baseline_output_dir(seed):
-    return OUTPUT_ROOT / "model3000" / f"eval_seed{seed}"
+    return OUTPUT_ROOT / policy_id(
+        TARGET_COMMAND_X, "rotor_positive_8", seed, 3000
+    )
 
 
 def control_output_dir(alias, seed):
-    return (
-        OUTPUT_ROOT
-        / "model4001"
-        / CONTROL_SPECS[alias]["mode"]
-        / f"eval_seed{seed}"
+    return OUTPUT_ROOT / policy_id(
+        TARGET_COMMAND_X, CONTROL_SPECS[alias]["mode"], seed, 4001
     )
 
 
