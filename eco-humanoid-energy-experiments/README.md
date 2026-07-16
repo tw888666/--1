@@ -243,14 +243,29 @@ CUDA_VISIBLE_DEVICES=0 python -u -m bruce_gym.scripts.evaluate_energy \
   --sim_device=cuda:0 \
   --rl_device=cuda:0 \
   --seed=0 \
-  --output_dir=energy_evaluations/<eval_name> \
   --make_eval_report
 ```
+
+By default, fixed-command outputs use a compact policy id:
+
+```text
+energy_evaluations/fixed20/vx010_rm8a05_s00_model4000/
+```
+
+The policy id format is:
+
+```text
+vx<command_x*100>_<cost_alias>_s<seed>_model<checkpoint>
+```
+
+For example, `rotor_positive_8` at `vx=0.2`, seed 0, checkpoint 4001 is
+`vx020_rp8_s00_model4001`. Use `--output_dir` only when you intentionally want
+to override this layout.
 
 This creates:
 
 ```text
-energy_evaluations/<eval_name>/eval_report/
+energy_evaluations/fixed20/<policy_id>/eval_report/
 ├── summary.csv
 ├── representative_episodes.json
 ├── report.md
@@ -265,7 +280,7 @@ If evaluation CSVs already exist, generate only the review bundle:
 
 ```bash
 python -m bruce_gym.scripts.generate_eval_review \
-  --eval_dir=energy_evaluations/<eval_name>
+  --eval_dir=energy_evaluations/fixed20/<policy_id>
 ```
 
 To record the selected best/median/worst episodes as MP4 files, rerun the same
@@ -282,7 +297,7 @@ CUDA_VISIBLE_DEVICES=0 python -u -m bruce_gym.scripts.record_eval_video \
   --checkpoint=<checkpoint_id> \
   --energy_cost_mode=rotor_mixed_8_alpha050 \
   --command_x=0.1 \
-  --review_dir=energy_evaluations/<eval_name>/eval_report \
+  --review_dir=energy_evaluations/fixed20/<policy_id>/eval_report \
   --sim_device=cuda:0 \
   --rl_device=cuda:0
 ```

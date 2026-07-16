@@ -209,6 +209,7 @@ class CommandConstructionTests(unittest.TestCase):
         self.assertIn("--max_iterations=1000", command)
         self.assertIn("--reset_lagrange_on_resume", command)
         self.assertNotIn("--reset_optimizer_on_resume", command)
+        self.assertIn("--run_name=vx020_ra8_s00_model4001", command)
         self.assertIn("--energy_cost_mode=rotor_abs_8", command)
         self.assertIn("--cost_limit1=81.79582343673707", command)
 
@@ -223,9 +224,25 @@ class CommandConstructionTests(unittest.TestCase):
         self.assertIn("--checkpoint=4001", fixed)
         self.assertIn("--num_eval_episodes=20", fixed)
         self.assertIn("--make_eval_report", fixed)
+        self.assertTrue(
+            any(
+                item.endswith(
+                    "energy_evaluations/fixed20/vx020_ja8_s00_model4001"
+                )
+                for item in fixed
+            )
+        )
         self.assertIn("--checkpoint=4001", distribution)
         self.assertIn("--calibration_episodes=100", distribution)
         self.assertIn("--num_envs=1024", distribution)
+        self.assertTrue(
+            any(
+                item.endswith(
+                    "energy_calibrations/train_dist100/vx020_ja8_s00_model4001"
+                )
+                for item in distribution
+            )
+        )
 
 
 class SchedulingAndStateTests(unittest.TestCase):

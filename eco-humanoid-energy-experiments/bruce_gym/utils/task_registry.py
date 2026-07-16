@@ -141,7 +141,7 @@ class TaskRegistry():
             if log_root=="default":
                 log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
             if os.path.isabs(str(train_cfg.runner.load_run)):
-                log_dir = os.path.join(log_root, datetime.now().strftime('%b%d_%H-%M-%S') + '_' + train_cfg.runner.run_name)
+                log_dir = os.path.join(log_root, datetime.now().strftime('%Y%m%d_%H%M') + '_' + train_cfg.runner.run_name)
             else:
                 log_dir = os.path.join(log_root, train_cfg.runner.load_run)
 
@@ -150,11 +150,11 @@ class TaskRegistry():
         else:
             if log_root=="default":
                 log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
-                log_dir = os.path.join(log_root, datetime.now().strftime('%b%d_%H-%M-%S') + '_' + train_cfg.runner.run_name)
+                log_dir = os.path.join(log_root, datetime.now().strftime('%Y%m%d_%H%M') + '_' + train_cfg.runner.run_name)
             elif log_root is None:
                 log_dir = None
             else:
-                log_dir = os.path.join(log_root, datetime.now().strftime('%b%d_%H-%M-%S') + '_' + train_cfg.runner.run_name)
+                log_dir = os.path.join(log_root, datetime.now().strftime('%Y%m%d_%H%M') + '_' + train_cfg.runner.run_name)
             
         train_cfg_dict = class_to_dict(train_cfg)
         #env_cfg_dict = class_to_dict(self.env_cfg_for_wandb)

@@ -29,18 +29,8 @@ SUMMARY_MD_PATH = WORKFLOW_DIR / "summary.md"
 LOG_DIR = WORKFLOW_DIR / "logs"
 
 BASE_RUN = ROOT / "pretrained_weights" / "eco_ppolag_0.2vel_8000cost_seed123"
-FIXED_ROOT = (
-    ROOT
-    / "energy_evaluations"
-    / "fixed_command_vx020_20ep"
-    / "model4001_truevx020"
-)
-TRAIN_DIST_ROOT = (
-    ROOT
-    / "energy_calibrations"
-    / "train_dist_vx020"
-    / "model4001_truevx020"
-)
+FIXED_ROOT = ROOT / "energy_evaluations" / "fixed20"
+TRAIN_DIST_ROOT = ROOT / "energy_calibrations" / "train_dist100"
 
 TARGET_COMMAND_X = 0.2
 VELOCITY_MIN = 0.16
@@ -60,21 +50,21 @@ NEW_FIXED_ALIASES = ("ra8", "ja8", "lja10")
 CONTROL_SPECS = {
     "rp8": {
         "mode": "rotor_positive_8",
-        "run_name": "rp8_truevx020_env8192_s0",
+        "run_name": "vx020_rp8_s00_model4001",
         "cost_limit1": 49.157738095283506,
         "train_gpu": None,
         "depends_on": None,
         "existing_run": ROOT
         / "logs"
         / "exp"
-        / "Jul10_12-36-22_rp8_truevx020_env8192_s0",
+        / "20260710_1236_vx020_rp8_s00_model4001",
         "initial_log": ROOT
         / "fixed_eval_logs"
         / "eval_rp8_truevx020_vx020_gpu3.log",
     },
     "ra8": {
         "mode": "rotor_abs_8",
-        "run_name": "ra8_truevx020_env8192_s0",
+        "run_name": "vx020_ra8_s00_model4001",
         "cost_limit1": 81.79582343673707,
         "train_gpu": 0,
         "depends_on": None,
@@ -83,21 +73,21 @@ CONTROL_SPECS = {
     },
     "jp8": {
         "mode": "joint_positive_8",
-        "run_name": "jp8_truevx020_env8192_s0",
+        "run_name": "vx020_jp8_s00_model4001",
         "cost_limit1": 45.27336714076996,
         "train_gpu": None,
         "depends_on": None,
         "existing_run": ROOT
         / "logs"
         / "exp"
-        / "Jul10_12-40-05_jp8_truevx020_env8192_s0",
+        / "20260710_1240_vx020_jp8_s00_model4001",
         "initial_log": ROOT
         / "fixed_eval_logs"
         / "eval_jp8_truevx020_vx020_gpu3.log",
     },
     "ja8": {
         "mode": "joint_abs_8",
-        "run_name": "ja8_truevx020_env8192_s0",
+        "run_name": "vx020_ja8_s00_model4001",
         "cost_limit1": 72.39956164360046,
         "train_gpu": 1,
         "depends_on": None,
@@ -106,7 +96,7 @@ CONTROL_SPECS = {
     },
     "lja10": {
         "mode": "legacy_joint_abs_10",
-        "run_name": "lja10_truevx020_env8192_s0",
+        "run_name": "vx020_lja10_s00_model4001",
         "cost_limit1": 7557.11452758789,
         "train_gpu": 0,
         "depends_on": "ra8",
@@ -170,11 +160,11 @@ def _mean_finite(rows, field, errors):
 
 
 def fixed_output_dir(alias):
-    return FIXED_ROOT / CONTROL_SPECS[alias]["mode"] / "seed0"
+    return FIXED_ROOT / CONTROL_SPECS[alias]["run_name"]
 
 
 def train_dist_output_dir(alias):
-    return TRAIN_DIST_ROOT / CONTROL_SPECS[alias]["mode"] / "seed0"
+    return TRAIN_DIST_ROOT / CONTROL_SPECS[alias]["run_name"]
 
 
 def validate_fixed_evaluation(output_dir, expected_mode):

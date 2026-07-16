@@ -8,7 +8,6 @@ import csv
 import json
 import os
 import sys
-import time
 
 from bruce_gym.gpu_auto_select import apply_auto_gpu_selection_from_argv
 
@@ -31,6 +30,7 @@ from bruce_gym.rotor_energy import (
     SUPPORTED_ENERGY_COST_MODES,
     energy_costs_from_policy_step_buffers,
 )
+from bruce_gym.naming import policy_id
 from bruce_gym.utils import get_args, task_registry
 from bruce_gym.utils.helpers import class_to_dict
 
@@ -116,13 +116,10 @@ def _set_calibration_config(env_cfg, args):
 
 
 def _default_output_dir(args, train_cfg, mode):
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
     checkpoint = train_cfg.runner.checkpoint
-    name = (
-        f"{timestamp}_{args.task}_{mode}_train_distribution_"
-        f"vx{args.command_x:g}_model{checkpoint}"
-    )
-    return os.path.join(LEGGED_GYM_ROOT_DIR, "energy_calibrations", name)
+    name = policy_id(args.command_x, mode, args.seed, checkpoint)
+    group = f"train_dist{int(args.calibration_episodes)}"
+    return os.path.join(LEGGED_GYM_ROOT_DIR, "energy_calibrations", group, name)
 
 
 def _collect_complete_episodes(env, policy, args):

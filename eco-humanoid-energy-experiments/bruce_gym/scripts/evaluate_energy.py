@@ -6,7 +6,6 @@ import csv
 import json
 import os
 import sys
-import time
 from collections import defaultdict
 
 from bruce_gym.gpu_auto_select import apply_auto_gpu_selection_from_argv
@@ -21,6 +20,7 @@ from bruce_gym import LEGGED_GYM_ROOT_DIR
 from bruce_gym.energy_reporting import rotor_energy_totals
 from bruce_gym.eval_review import generate_review
 from bruce_gym.envs import *  # noqa: F401,F403
+from bruce_gym.naming import policy_id
 from bruce_gym.rotor_energy import (
     BRUCE_EXPECTED_DOF_NAMES,
     BRUCE_ROTOR_NAMES,
@@ -340,9 +340,9 @@ def _phase_summary_rows(phase_acc, dt):
 
 def _default_output_dir(args):
     mode = args.energy_cost_mode or "cfg"
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    name = f"{timestamp}_{args.task}_{mode}_vx{args.command_x:g}"
-    return os.path.join(LEGGED_GYM_ROOT_DIR, "energy_evaluations", name)
+    name = policy_id(args.command_x, mode, args.seed, args.checkpoint)
+    group = f"fixed{int(args.num_eval_episodes)}"
+    return os.path.join(LEGGED_GYM_ROOT_DIR, "energy_evaluations", group, name)
 
 
 def evaluate(args):
