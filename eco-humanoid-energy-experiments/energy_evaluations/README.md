@@ -19,6 +19,7 @@ fixed20/
   vx010_jp8_s00_model4000
   vx010_ja8_s00_model4000
   vx010_lja10_s00_model4000
+  vx010_rm8a05_s00_model4000
   vx020_rp8_s00_model4001
   vx020_ra8_s00_model4001
   vx020_jp8_s00_model4001
@@ -56,8 +57,22 @@ eval_report/
 Use `metadata.json` as the source of truth for `load_run`, `checkpoint`,
 `energy_cost_mode`, `command_x`, and `seed`.
 
+## Special Fixed Evaluations
+
+Short or modified fixed-command checks use the same policy id plus a suffix:
+
+```text
+fixed1/
+  vx020_ra8_s00_model4001_mirror
+  vx020_ja8_s00_model4001_mirror
+
+fixed5/
+  vx020_ra8_s00_model4001_phase050
+  vx020_ja8_s00_model4001_phase050
+```
+
 ## Legacy Outputs
 
-Top-level `eval_*`, `eco_ppolag_*`, `mixed_*`, and old `fixed_command_*`
-directories are older or different-scope runs. Keep them separate from
-`fixed20/` unless their metadata matches the same protocol.
+Older or different-scope runs are kept under `legacy/` and renamed with the
+same policy-id vocabulary where possible. Keep them separate from the current
+cohort unless their metadata matches the same protocol.
