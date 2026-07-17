@@ -9,7 +9,7 @@ python环境为conda里的bruce_gym
 - 默认使用中文回复，并称呼用户为 `nullptr`。
 - English terms must include Chinese meaning on first use, for example GitHub（代码托管平台）, Git（版本控制系统）, branch（分支）, commit（提交）, and push（推送）。
 - 不确定时必须明确说明不确定点，不要编造不存在的文件、接口、命令或结果。
-- 生成的各种数据文件，png，csv，md等，尽量使用中文描述，如是英语专业名称，旁边需要附上中文解释。
+- 生成的各种数据文件，png，csv，md等，尽量使用中文描述，如是英语专业名称，旁边需要附上中文解释。md文件也尽量用中文命名。
 
 ## Environment
 - 本机是 Ubuntu 22.04服务器，使用 NVIDIA GPU 进行 Isaac Gym 训练和评估。无GUI环境，使用 SSH 远程连接。
