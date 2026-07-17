@@ -154,6 +154,7 @@ class EvalReviewTests(unittest.TestCase):
                         "rotor_positive_energy_8": 4.0,
                         "rotor_negative_energy_8": 2.0,
                         "rotor_mixed_energy_8": 5.0,
+                        "reducer_corrected_energy_8": 4.0,
                         "joint_positive_energy_10": 6.0,
                         "joint_negative_energy_10": 3.0,
                         "hip_yaw_l_positive_energy": 1.0,
@@ -172,6 +173,7 @@ class EvalReviewTests(unittest.TestCase):
                         "rotor_positive_energy_8": 6.0,
                         "rotor_negative_energy_8": 2.0,
                         "rotor_mixed_energy_8": 7.0,
+                        "reducer_corrected_energy_8": 6.0,
                         "joint_positive_energy_10": 7.0,
                         "joint_negative_energy_10": 3.0,
                         "hip_yaw_l_positive_energy": 1.0,
@@ -226,6 +228,8 @@ class EvalReviewTests(unittest.TestCase):
                 rows = list(csv.DictReader(csvfile))
             self.assertAlmostEqual(float(rows[0]["e_mix_per_m"]), 5.0)
             self.assertAlmostEqual(float(rows[1]["e_mix_per_m"]), 3.5)
+            self.assertAlmostEqual(float(rows[0]["e_reducer_corrected_per_m"]), 4.0)
+            self.assertAlmostEqual(float(rows[1]["e_reducer_corrected_per_m"]), 3.0)
 
 
 if __name__ == "__main__":

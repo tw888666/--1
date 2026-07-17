@@ -79,6 +79,8 @@ def summarize_episode_costs(
     has_successes = bool(success_costs)
     if not has_successes:
         recommendation_status = "invalid_no_successful_episodes"
+    elif float(all_mean) <= 0.0 or float(success_mean) <= 0.0:
+        recommendation_status = "invalid_non_positive_mean_cost"
     elif len(success_costs) < len(rows):
         recommendation_status = "review_required_falls_present"
     else:
@@ -94,17 +96,21 @@ def summarize_episode_costs(
         "limit_fraction": limit_fraction,
         "provisional_cost_limit1_all_episodes": provisional_all_limit,
         "recommended_cost_limit1_all_episodes": (
-            provisional_all_limit if has_successes else None
+            provisional_all_limit
+            if has_successes and recommendation_status != "invalid_non_positive_mean_cost"
+            else None
         ),
         "recommended_cost_limit1_success_episodes": (
             float(success_mean) * limit_fraction
             if success_mean is not None
+            and recommendation_status != "invalid_non_positive_mean_cost"
             else None
         ),
         "recommendation_status": recommendation_status,
         "recommendation_semantics": (
             "The all-episode recommendation matches Train/mean_cost1. "
-            "It is invalid when no successful episodes are observed and "
+            "It is invalid when no successful episodes are observed, when "
+            "the all-episode or success-only mean cost is non-positive, and "
             "requires review when falls are present. Repeat across calibration "
             "seeds before formal training."
         ),

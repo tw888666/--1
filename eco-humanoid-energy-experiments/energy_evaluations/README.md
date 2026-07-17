@@ -42,7 +42,12 @@ jp8    = joint_positive_8
 ja8    = joint_abs_8
 lja10  = legacy_joint_abs_10
 rm8a05 = rotor_mixed_8_alpha050
+rc8    = reducer_corrected_8
 ```
+
+`reducer_corrected_8` 还需要在 `metadata.json` 中记录
+`reducer_motoring_efficiency` 和 `reducer_generating_efficiency`。统一效率值会在
+目录名后附加例如 `etam090_etag050` 的标记，避免不同效率参数覆盖彼此的结果。
 
 Each policy directory contains:
 

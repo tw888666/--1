@@ -60,6 +60,7 @@ ROTOR_ABS_8 = "rotor_abs_8"
 ROTOR_POSITIVE_8 = "rotor_positive_8"
 ROTOR_MIXED_8 = "rotor_mixed_8"
 ROTOR_MIXED_8_ALPHA050 = "rotor_mixed_8_alpha050"
+REDUCER_CORRECTED_8 = "reducer_corrected_8"
 ROTOR_MIXED_BRAKE_ALPHA = 0.5
 
 SUPPORTED_ENERGY_COST_MODES = (
@@ -70,6 +71,7 @@ SUPPORTED_ENERGY_COST_MODES = (
     ROTOR_POSITIVE_8,
     ROTOR_MIXED_8,
     ROTOR_MIXED_8_ALPHA050,
+    REDUCER_CORRECTED_8,
 )
 
 CONTROL_ENERGY_COST_MODES = (
@@ -83,6 +85,74 @@ CONTROL_ENERGY_COST_MODES = (
 
 def compute_rotor_mixed_energy(rotor_positive_energy, rotor_negative_energy):
     return rotor_positive_energy + ROTOR_MIXED_BRAKE_ALPHA * rotor_negative_energy
+
+
+def parse_efficiency_spec(value):
+    """Parse one shared efficiency or eight comma-separated motor values."""
+
+    if value is None:
+        return None
+    if isinstance(value, str):
+        parts = [part.strip() for part in value.split(",") if part.strip()]
+        if not parts:
+            raise ValueError("Efficiency specification must not be empty.")
+        values = [float(part) for part in parts]
+    elif isinstance(value, (int, float)):
+        values = [float(value)]
+    else:
+        values = [float(item) for item in value]
+
+    if len(values) not in (1, len(BRUCE_ROTOR_NAMES)):
+        raise ValueError(
+            "Efficiency specification must contain either one shared value or "
+            f"{len(BRUCE_ROTOR_NAMES)} per-motor values; got {len(values)}."
+        )
+    return values[0] if len(values) == 1 else tuple(values)
+
+
+def make_efficiency_tensor(
+    values,
+    device: torch.device,
+    dtype: torch.dtype,
+    name: str,
+    allow_zero: bool,
+) -> torch.Tensor:
+    """Build and validate an eight-motor efficiency tensor."""
+
+    values = parse_efficiency_spec(values)
+    if values is None:
+        raise ValueError(
+            f"{name} is required when energy_cost_mode={REDUCER_CORRECTED_8}."
+        )
+    tensor = torch.as_tensor(values, device=device, dtype=dtype)
+    if tensor.ndim == 0:
+        tensor = tensor.repeat(len(BRUCE_ROTOR_NAMES))
+    if tuple(tensor.shape) != (len(BRUCE_ROTOR_NAMES),):
+        raise ValueError(
+            f"{name} must be scalar or have shape ({len(BRUCE_ROTOR_NAMES)},), "
+            f"got {tuple(tensor.shape)}."
+        )
+    lower_bound = 0.0 if allow_zero else torch.finfo(dtype).eps
+    if not torch.isfinite(tensor).all().item():
+        raise ValueError(f"{name} must contain only finite values.")
+    if torch.any(tensor < lower_bound).item() or torch.any(tensor > 1.0).item():
+        interval = "[0, 1]" if allow_zero else "(0, 1]"
+        raise ValueError(f"{name} values must lie in {interval}.")
+    return tensor
+
+
+def compute_reducer_corrected_energy(
+    rotor_positive_energy_per_motor: torch.Tensor,
+    rotor_negative_energy_per_motor: torch.Tensor,
+    motoring_efficiency: torch.Tensor,
+    generating_efficiency: torch.Tensor,
+) -> torch.Tensor:
+    """Compute sum_j(E_g,j^+ / eta_g,mot,j - eta_g,gen,j E_g,j^-)."""
+
+    return (
+        rotor_positive_energy_per_motor / motoring_efficiency
+        - generating_efficiency * rotor_negative_energy_per_motor
+    ).sum(dim=-1)
 
 
 def make_bruce_transmission_tensors(
@@ -263,7 +333,12 @@ def compute_bruce_energy_terms(
     return terms
 
 
-def energy_cost_from_terms(terms: Dict[str, torch.Tensor], mode: str) -> torch.Tensor:
+def energy_cost_from_terms(
+    terms: Dict[str, torch.Tensor],
+    mode: str,
+    reducer_motoring_efficiency: Optional[torch.Tensor] = None,
+    reducer_generating_efficiency: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
     if mode == LEGACY_JOINT_ABS_10:
         return terms["legacy_joint_abs_10_cost"]
     if mode == JOINT_ABS_8:
@@ -276,6 +351,18 @@ def energy_cost_from_terms(terms: Dict[str, torch.Tensor], mode: str) -> torch.T
         return terms["rotor_drive_energy"]
     if mode in (ROTOR_MIXED_8, ROTOR_MIXED_8_ALPHA050):
         return terms["rotor_mixed_energy"]
+    if mode == REDUCER_CORRECTED_8:
+        if reducer_motoring_efficiency is None or reducer_generating_efficiency is None:
+            raise ValueError(
+                "Reducer-corrected energy requires motoring and generating "
+                "efficiency tensors."
+            )
+        return compute_reducer_corrected_energy(
+            terms["rotor_drive_energy_per_motor"],
+            terms["rotor_brake_energy_per_motor"],
+            reducer_motoring_efficiency,
+            reducer_generating_efficiency,
+        )
     raise ValueError(f"Unsupported energy cost mode: {mode}")
 
 
@@ -285,6 +372,10 @@ def energy_costs_from_policy_step_buffers(
     joint_brake_energy_per_joint: torch.Tensor,
     rotor_drive_energy: torch.Tensor,
     rotor_brake_energy: torch.Tensor,
+    rotor_drive_energy_per_motor: Optional[torch.Tensor] = None,
+    rotor_brake_energy_per_motor: Optional[torch.Tensor] = None,
+    reducer_motoring_efficiency: Optional[torch.Tensor] = None,
+    reducer_generating_efficiency: Optional[torch.Tensor] = None,
 ) -> Dict[str, torch.Tensor]:
     """Reconstruct every control cost from one shared policy-step trajectory."""
 
@@ -294,7 +385,7 @@ def energy_costs_from_policy_step_buffers(
     drive_joint_negative = _select_last_dim(
         joint_brake_energy_per_joint, BRUCE_DRIVE_JOINT_INDICES
     ).sum(dim=-1)
-    return {
+    costs = {
         ROTOR_POSITIVE_8: rotor_drive_energy,
         ROTOR_ABS_8: rotor_drive_energy + rotor_brake_energy,
         JOINT_POSITIVE_8: drive_joint_positive,
@@ -303,3 +394,17 @@ def energy_costs_from_policy_step_buffers(
             dim=-1
         ),
     }
+    reducer_inputs = (
+        rotor_drive_energy_per_motor,
+        rotor_brake_energy_per_motor,
+        reducer_motoring_efficiency,
+        reducer_generating_efficiency,
+    )
+    if all(value is not None for value in reducer_inputs):
+        costs[REDUCER_CORRECTED_8] = compute_reducer_corrected_energy(
+            rotor_drive_energy_per_motor,
+            rotor_brake_energy_per_motor,
+            reducer_motoring_efficiency,
+            reducer_generating_efficiency,
+        )
+    return costs

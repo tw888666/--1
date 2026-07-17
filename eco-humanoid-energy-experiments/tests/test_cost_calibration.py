@@ -79,6 +79,21 @@ class CostCalibrationSummaryTests(unittest.TestCase):
                         limit_fraction=fraction,
                     )
 
+    def test_non_positive_mean_cost_has_no_recommended_limit(self):
+        summary = summarize_episode_costs(
+            [
+                {"cost1": -2.0, "episode_outcome": "success"},
+                {"cost1": 1.0, "episode_outcome": "success"},
+            ]
+        )
+
+        self.assertEqual(
+            summary["recommendation_status"],
+            "invalid_non_positive_mean_cost",
+        )
+        self.assertIsNone(summary["recommended_cost_limit1_all_episodes"])
+        self.assertIsNone(summary["recommended_cost_limit1_success_episodes"])
+
     def test_evenly_spaced_indices_cover_full_environment_range(self):
         indices = evenly_spaced_indices(1024, 100)
 

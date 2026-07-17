@@ -222,6 +222,13 @@ python bruce_gym/scripts/play.py \
   --checkpoint=<checkpoint_id>
 ```
 
+### 减速器修正机械能模型
+
+仓库支持 `reducer_corrected_8`，按驱动效率和回生效率计算 8 个传动电机通道的
+修正机械能。效率参数、基线校准、续训和训练后复核命令见
+[`减速器修正机械能训练说明.md`](减速器修正机械能训练说明.md)。没有硬件实测效率时，
+示例的 `0.90/0.50` 只能作为算法试跑假设，不能作为真实电池能耗结论。
+
 ### Offline Evaluation Review
 
 For a headless server, prefer an offline review bundle over a live viewer. The

@@ -12,6 +12,7 @@ from bruce_gym.rotor_energy import (
     JOINT_ABS_8,
     JOINT_POSITIVE_8,
     LEGACY_JOINT_ABS_10,
+    REDUCER_CORRECTED_8,
     ROTOR_ABS_8,
     ROTOR_POSITIVE_8,
     SUPPORTED_ENERGY_COST_MODES,
@@ -20,9 +21,12 @@ from bruce_gym.rotor_energy import (
     bruce_rotor_names_from_dof_names,
     compute_bruce_energy_terms,
     compute_bruce_rotor_power,
+    compute_reducer_corrected_energy,
     energy_cost_from_terms,
     energy_costs_from_policy_step_buffers,
+    make_efficiency_tensor,
     make_bruce_transmission_tensors,
+    parse_efficiency_spec,
 )
 
 
@@ -167,6 +171,98 @@ class BruceRotorEnergyTest(unittest.TestCase):
         self.assertIn("rotor_mixed_8_alpha050", SUPPORTED_ENERGY_COST_MODES)
         self.assertTrue(torch.allclose(energy_cost_from_terms(terms, "rotor_mixed_8"), expected))
         self.assertTrue(torch.allclose(energy_cost_from_terms(terms, "rotor_mixed_8_alpha050"), expected))
+
+    def test_reducer_corrected_cost_matches_motoring_and_generating_formula(self):
+        torques = torch.tensor(
+            [[1.0, -2.0, 3.0, -4.0, 5.0, -6.0, 7.0, -8.0, 9.0, -10.0]],
+            dtype=self.dtype,
+        )
+        velocities = torch.tensor(
+            [[0.5, 0.25, -0.5, 0.75, -1.0, 1.25, -1.5, 1.75, -2.0, 2.25]],
+            dtype=self.dtype,
+        )
+        terms = compute_bruce_energy_terms(
+            torques, velocities, sim_dt=0.001, transmission=self.transmission
+        )
+        motoring = torch.full((8,), 0.8, dtype=self.dtype)
+        generating = torch.tensor(
+            [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8], dtype=self.dtype
+        )
+        expected = (
+            terms["rotor_drive_energy_per_motor"] / motoring
+            - generating * terms["rotor_brake_energy_per_motor"]
+        ).sum(dim=-1)
+
+        self.assertIn(REDUCER_CORRECTED_8, SUPPORTED_ENERGY_COST_MODES)
+        self.assertTrue(
+            torch.allclose(
+                compute_reducer_corrected_energy(
+                    terms["rotor_drive_energy_per_motor"],
+                    terms["rotor_brake_energy_per_motor"],
+                    motoring,
+                    generating,
+                ),
+                expected,
+            )
+        )
+        self.assertTrue(
+            torch.allclose(
+                energy_cost_from_terms(
+                    terms, REDUCER_CORRECTED_8, motoring, generating
+                ),
+                expected,
+            )
+        )
+
+        reconstructed = energy_costs_from_policy_step_buffers(
+            terms["joint_power_all"],
+            terms["joint_drive_energy_per_joint"],
+            terms["joint_brake_energy_per_joint"],
+            terms["rotor_drive_energy"],
+            terms["rotor_brake_energy"],
+            terms["rotor_drive_energy_per_motor"],
+            terms["rotor_brake_energy_per_motor"],
+            motoring,
+            generating,
+        )
+        self.assertTrue(
+            torch.allclose(reconstructed[REDUCER_CORRECTED_8], expected)
+        )
+
+    def test_reducer_efficiencies_accept_shared_or_per_motor_values(self):
+        shared = make_efficiency_tensor(
+            0.9,
+            torch.device("cpu"),
+            self.dtype,
+            "motoring",
+            allow_zero=False,
+        )
+        per_motor = make_efficiency_tensor(
+            "0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8",
+            torch.device("cpu"),
+            self.dtype,
+            "generating",
+            allow_zero=True,
+        )
+
+        self.assertTrue(torch.allclose(shared, torch.full((8,), 0.9, dtype=self.dtype)))
+        self.assertEqual(tuple(parse_efficiency_spec("0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8")), tuple(per_motor.tolist()))
+        with self.assertRaises(ValueError):
+            make_efficiency_tensor(
+                0.0,
+                torch.device("cpu"),
+                self.dtype,
+                "motoring",
+                allow_zero=False,
+            )
+        with self.assertRaises(ValueError):
+            make_efficiency_tensor(
+                "0.9,0.9",
+                torch.device("cpu"),
+                self.dtype,
+                "motoring",
+                allow_zero=False,
+            )
 
     def test_all_ten_joint_energies_are_reported(self):
         torques = torch.tensor(

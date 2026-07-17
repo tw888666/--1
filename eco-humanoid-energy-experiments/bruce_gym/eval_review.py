@@ -407,6 +407,11 @@ def _episode_metric_row(episode_row, step_rows, metadata):
             "review_duration_s": duration_s,
         }
     )
+    reducer_corrected = row.get("reducer_corrected_energy_8")
+    if reducer_corrected not in (None, ""):
+        row["e_reducer_corrected_per_m"] = _safe_div(
+            _to_float(reducer_corrected), distance_x
+        )
     row.update(_contact_fractions(step_rows))
     return row
 
@@ -875,6 +880,10 @@ def _write_report(
     tracking_values = [
         _to_float(row.get("velocity_error_rms"), default=math.nan) for row in summary_rows
     ]
+    reducer_values = [
+        _to_float(row.get("e_reducer_corrected_per_m"), default=math.nan)
+        for row in summary_rows
+    ]
 
     lines = [
         "# Evaluation Review",
@@ -902,6 +911,12 @@ def _write_report(
         "| label | episode_id | metric | value | reason |",
         "| --- | ---: | --- | ---: | --- |",
     ]
+    if any(_finite(value) for value in reducer_values):
+        lines.insert(
+            lines.index("## Representative Episodes") - 1,
+            "- mean_E_reducer_corrected_per_m: "
+            f"{_format_number(_mean([value for value in reducer_values if _finite(value)]))} J/m",
+        )
     for rep in representatives:
         lines.append(
             "| {label} | {episode_id} | {metric} | {value} | {reason} |".format(

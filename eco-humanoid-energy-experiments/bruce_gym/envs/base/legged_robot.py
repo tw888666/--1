@@ -48,10 +48,12 @@ from bruce_gym.utils.helpers import class_to_dict
 from bruce_gym.rotor_energy import (
     BRUCE_YAW_JOINT_INDICES,
     LEGACY_JOINT_ABS_10,
+    REDUCER_CORRECTED_8,
     SUPPORTED_ENERGY_COST_MODES,
     assert_bruce_dof_order,
     compute_bruce_energy_terms,
     energy_cost_from_terms,
+    make_efficiency_tensor,
     make_bruce_transmission_tensors,
 )
 from .legged_robot_config import LeggedRobotCfg
@@ -165,6 +167,23 @@ class LeggedRobot(BaseTask):
         self._bruce_transmission = make_bruce_transmission_tensors(
             self.torques.device, self.torques.dtype, self.koala_gear_ratio
         )
+        self.reducer_motoring_efficiency = None
+        self.reducer_generating_efficiency = None
+        if self.energy_cost_mode == REDUCER_CORRECTED_8:
+            self.reducer_motoring_efficiency = make_efficiency_tensor(
+                getattr(self.cfg.env, "reducer_motoring_efficiency", None),
+                self.torques.device,
+                self.torques.dtype,
+                "reducer_motoring_efficiency",
+                allow_zero=False,
+            )
+            self.reducer_generating_efficiency = make_efficiency_tensor(
+                getattr(self.cfg.env, "reducer_generating_efficiency", None),
+                self.torques.device,
+                self.torques.dtype,
+                "reducer_generating_efficiency",
+                allow_zero=True,
+            )
 
         self.cost1_buf = torch.zeros(
             self.num_envs, dtype=torch.float, device=self.device, requires_grad=False
@@ -223,9 +242,19 @@ class LeggedRobot(BaseTask):
             gear_ratio=self.koala_gear_ratio,
         )
         if self.energy_cost_mode == LEGACY_JOINT_ABS_10:
-            self.cost1_buf[:] = energy_cost_from_terms(terms, self.energy_cost_mode)
+            self.cost1_buf[:] = energy_cost_from_terms(
+                terms,
+                self.energy_cost_mode,
+                self.reducer_motoring_efficiency,
+                self.reducer_generating_efficiency,
+            )
         else:
-            self.cost1_buf += energy_cost_from_terms(terms, self.energy_cost_mode)
+            self.cost1_buf += energy_cost_from_terms(
+                terms,
+                self.energy_cost_mode,
+                self.reducer_motoring_efficiency,
+                self.reducer_generating_efficiency,
+            )
 
         self.rotor_output_torque[:] = terms["output_torque"]
         self.rotor_output_velocity[:] = terms["output_velocity"]
