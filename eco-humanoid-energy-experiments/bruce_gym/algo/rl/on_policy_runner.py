@@ -70,7 +70,7 @@ class OnPolicyRunner:
 
         self.all_cfg = train_cfg
         # self.wandb_run_name = (
-        #     datetime.now().strftime("%Y%m%d_%H%M")
+        #     datetime.now().strftime("%b%d_%H-%M-%S")
         #     + "_"
         #     + train_cfg["runner"]["experiment_name"]
         #     + "_" 
@@ -501,56 +501,20 @@ class OnPolicyRunner:
                     save_dict["lagrange"+str(i+1) + "_lambda_optimizer"] = getattr(self, "lagrange"+str(i+1)).lambda_optimizer.state_dict()
         torch.save(save_dict, path)
 
-    def _load_lagrange_states(self, loaded_dict, load_optimizer=True):
-        legacy_multiplier_keys = {
-            1: "lagrange_lagrangian_multiplier",
-            2: "lagrange2_lagrangian_multiplier",
-        }
-        legacy_optimizer_keys = {
-            1: "lagrange_lambda_optimizer",
-            2: "lagrange2_lambda_optimizer",
-        }
-        for i in range(len(self.alg.use_cost_values) + 1):
-            lagrange_attr = "lagrange" + str(i + 1)
-            if not hasattr(self, lagrange_attr):
-                continue
-            lagrange_obj = getattr(self, lagrange_attr)
-
-            multiplier_key = lagrange_attr
-            legacy_multiplier_key = legacy_multiplier_keys.get(i + 1)
-            if multiplier_key in loaded_dict:
-                loaded_multiplier = loaded_dict[multiplier_key]
-            elif legacy_multiplier_key in loaded_dict:
-                loaded_multiplier = loaded_dict[legacy_multiplier_key]
-            else:
-                loaded_multiplier = None
-
-            if loaded_multiplier is not None:
-                if isinstance(loaded_multiplier, torch.nn.Parameter):
-                    loaded_multiplier = loaded_multiplier.detach()
-                if not isinstance(loaded_multiplier, torch.Tensor):
-                    loaded_multiplier = torch.as_tensor(loaded_multiplier)
-                target = lagrange_obj.lagrangian_multiplier
-                target.data.copy_(
-                    loaded_multiplier.to(target.device, dtype=target.dtype).reshape(target.shape)
-                )
-
-            if load_optimizer and hasattr(lagrange_obj, "lambda_optimizer"):
-                optimizer_key = lagrange_attr + "_lambda_optimizer"
-                legacy_optimizer_key = legacy_optimizer_keys.get(i + 1)
-                if optimizer_key in loaded_dict:
-                    lagrange_obj.lambda_optimizer.load_state_dict(loaded_dict[optimizer_key])
-                elif legacy_optimizer_key in loaded_dict:
-                    lagrange_obj.lambda_optimizer.load_state_dict(loaded_dict[legacy_optimizer_key])
-
-    def load(self, path, load_optimizer=True, load_lagrange=True):
-        loaded_dict = torch.load(path, map_location=self.device)
+    def load(self, path, load_optimizer=True):
+        loaded_dict = torch.load(path, map_location="cuda:0")
         self.alg.actor_critic.load_state_dict(loaded_dict["model_state_dict"])
         if load_optimizer:
             self.alg.optimizer.load_state_dict(loaded_dict["optimizer_state_dict"])
             self.alg.cost_value_optimizer.load_state_dict(loaded_dict["cost_value_optimizer_state_dict"])
-        if load_lagrange:
-            self._load_lagrange_states(loaded_dict, load_optimizer=load_optimizer)
+            if "lagrange_lambda_optimizer" in loaded_dict and hasattr(self.lagrange, "lambda_optimizer"):
+                self.lagrange.lambda_optimizer.load_state_dict(loaded_dict["lagrange_lambda_optimizer"])
+            if "lagrange2_lambda_optimizer" in loaded_dict and hasattr(self.lagrange2, "lambda_optimizer"):
+                self.lagrange2.lambda_optimizer.load_state_dict(loaded_dict["lagrange2_lambda_optimizer"])
+        if "lagrange_lagrangian_multiplier" in loaded_dict:
+            self.lagrange.lagrangian_multiplier = loaded_dict["lagrange_lagrangian_multiplier"]
+        if "lagrange2_lagrangian_multiplier" in loaded_dict:
+            self.lagrange2.lagrangian_multiplier = loaded_dict["lagrange2_lagrangian_multiplier"]
         if "total_time" in loaded_dict:
             self.tot_time = loaded_dict["total_time"]
         if "iter" in loaded_dict:

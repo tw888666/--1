@@ -98,9 +98,6 @@ class BruceWalkFreeEnv(LeggedRobot):
         reset_idx(env_ids): Resets the environment for the specified environment IDs.
     '''
     def __init__(self, cfg: LeggedRobotCfg, sim_params, physics_engine, sim_device, headless):
-        self.gait_phase_offset = float(
-            getattr(cfg.env, "gait_phase_offset", 0.0)
-        ) % 1.0
         super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
         self.last_feet_z = 0.03
         self.feet_height = torch.zeros((self.num_envs, 2), device=self.device)
@@ -175,10 +172,7 @@ class BruceWalkFreeEnv(LeggedRobot):
     
     def  _get_phase(self):
         cycle_time = self.cfg.rewards.cycle_time
-        phase = (
-            self.episode_length_buf * self.dt / cycle_time
-            + self.gait_phase_offset
-        )
+        phase = self.episode_length_buf * self.dt / cycle_time
         return phase
 
     def _get_gait_phase(self):
@@ -334,6 +328,8 @@ class BruceWalkFreeEnv(LeggedRobot):
         dq = self.dof_vel * self.obs_scales.dof_vel
         
         diff = self.dof_pos - self.ref_dof_pos
+
+        self._sample_energy_cost()
 
         self.privileged_obs_buf = torch.cat((
             self.command_input,  # 2 + 3

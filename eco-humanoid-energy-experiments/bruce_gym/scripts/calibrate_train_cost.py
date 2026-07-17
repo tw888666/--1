@@ -294,10 +294,6 @@ def calibrate(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     mode = _set_calibration_config(env_cfg, args)
     train_cfg.runner.resume = True
-    # Calibration needs policy weights only. Avoid restoring optimizer and
-    # Lagrange state from checkpoints created under a different cost scale.
-    args.reset_optimizer_on_resume = True
-    args.reset_lagrange_on_resume = True
 
     env, env_cfg = task_registry.make_env(
         name=args.task, args=args, env_cfg=env_cfg

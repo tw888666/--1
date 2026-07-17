@@ -201,13 +201,13 @@ class TrainingDistributionValidationTests(unittest.TestCase):
 
 
 class CommandConstructionTests(unittest.TestCase):
-    def test_training_commands_lock_vx_and_preserve_optimizer(self):
+    def test_training_commands_preserve_original_training_inputs_and_states(self):
         command = pipeline.build_train_command("ra8", python_executable="python")
 
-        self.assertIn("--train_command_x=0.2", command)
+        self.assertNotIn("--train_command_x=0.2", command)
         self.assertIn("--num_envs=8192", command)
         self.assertIn("--max_iterations=1000", command)
-        self.assertIn("--reset_lagrange_on_resume", command)
+        self.assertNotIn("--reset_lagrange_on_resume", command)
         self.assertNotIn("--reset_optimizer_on_resume", command)
         self.assertIn("--run_name=vx020_ra8_s00_model4001", command)
         self.assertIn("--energy_cost_mode=rotor_abs_8", command)

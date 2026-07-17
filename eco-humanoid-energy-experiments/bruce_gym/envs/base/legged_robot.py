@@ -109,16 +109,14 @@ class LeggedRobot(BaseTask):
 
         # step physics and render each frame
         self.render()
-        self._reset_energy_buffers()
-        for decimation_step in range(self.cfg.control.decimation):
-            self.torques = self._compute_torques(self.delayed_actions[:, decimation_step]).view(self.torques.shape)
+        for _ in range(self.cfg.control.decimation):
+            self.torques = self._compute_torques(self.delayed_actions[:, _]).view(self.torques.shape)
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self.torques))
 
             self.gym.simulate(self.sim)
             if self.device == 'cpu':
                 self.gym.fetch_results(self.sim, True)
             self.gym.refresh_dof_state_tensor(self.sim)
-            self._accumulate_energy_cost_substep()
 
 
         if hasattr(self.cfg.normalization, 'filter_weight'):
@@ -160,7 +158,7 @@ class LeggedRobot(BaseTask):
             )
         if getattr(self.cfg.asset, "name", None) == "bruce":
             assert_bruce_dof_order(self.dof_names)
-        self.energy_sim_dt = float(getattr(self.cfg.env, "energy_sim_dt", self.sim_params.dt))
+        self.energy_sample_dt = self.dt
         self.koala_gear_ratio = float(getattr(self.cfg.env, "koala_gear_ratio", 9.0))
         self._bruce_transmission = make_bruce_transmission_tensors(
             self.torques.device, self.torques.dtype, self.koala_gear_ratio
@@ -194,22 +192,7 @@ class LeggedRobot(BaseTask):
         self.yaw_joint_drive_energy = torch.zeros_like(self.yaw_joint_power)
         self.yaw_joint_brake_energy = torch.zeros_like(self.yaw_joint_power)
 
-    def _reset_energy_buffers(self):
-        if self.env_cost_num < 1:
-            return
-        self.cost1_buf.zero_()
-        self.rotor_drive_energy_per_motor.zero_()
-        self.rotor_brake_energy_per_motor.zero_()
-        self.rotor_drive_energy.zero_()
-        self.rotor_brake_energy.zero_()
-        self.joint_drive_energy_per_joint.zero_()
-        self.joint_brake_energy_per_joint.zero_()
-        self.joint_drive_energy.zero_()
-        self.joint_brake_energy.zero_()
-        self.yaw_joint_drive_energy.zero_()
-        self.yaw_joint_brake_energy.zero_()
-
-    def _accumulate_energy_cost_substep(self):
+    def _sample_energy_cost(self):
         if self.env_cost_num < 1:
             return
 
@@ -218,35 +201,32 @@ class LeggedRobot(BaseTask):
         terms = compute_bruce_energy_terms(
             self.torques,
             joint_velocities,
-            self.energy_sim_dt,
+            self.energy_sample_dt,
             transmission=self._bruce_transmission,
             gear_ratio=self.koala_gear_ratio,
         )
-        if self.energy_cost_mode == LEGACY_JOINT_ABS_10:
-            self.cost1_buf[:] = energy_cost_from_terms(terms, self.energy_cost_mode)
-        else:
-            self.cost1_buf += energy_cost_from_terms(terms, self.energy_cost_mode)
+        self.cost1_buf[:] = energy_cost_from_terms(terms, self.energy_cost_mode)
 
         self.rotor_output_torque[:] = terms["output_torque"]
         self.rotor_output_velocity[:] = terms["output_velocity"]
         self.rotor_torque[:] = terms["rotor_torque"]
         self.rotor_velocity[:] = terms["rotor_velocity"]
         self.rotor_power[:] = terms["rotor_power"]
-        self.rotor_drive_energy_per_motor += terms["rotor_drive_energy_per_motor"]
-        self.rotor_brake_energy_per_motor += terms["rotor_brake_energy_per_motor"]
-        self.rotor_drive_energy[:] = self.rotor_drive_energy_per_motor.sum(dim=-1)
-        self.rotor_brake_energy[:] = self.rotor_brake_energy_per_motor.sum(dim=-1)
+        self.rotor_drive_energy_per_motor[:] = terms["rotor_drive_energy_per_motor"]
+        self.rotor_brake_energy_per_motor[:] = terms["rotor_brake_energy_per_motor"]
+        self.rotor_drive_energy[:] = terms["rotor_drive_energy"]
+        self.rotor_brake_energy[:] = terms["rotor_brake_energy"]
         self.joint_power[:] = terms["joint_power_all"]
-        self.joint_drive_energy_per_joint += terms["joint_drive_energy_per_joint"]
-        self.joint_brake_energy_per_joint += terms["joint_brake_energy_per_joint"]
-        self.joint_drive_energy[:] = self.joint_drive_energy_per_joint.sum(dim=-1)
-        self.joint_brake_energy[:] = self.joint_brake_energy_per_joint.sum(dim=-1)
+        self.joint_drive_energy_per_joint[:] = terms["joint_drive_energy_per_joint"]
+        self.joint_brake_energy_per_joint[:] = terms["joint_brake_energy_per_joint"]
+        self.joint_drive_energy[:] = terms["joint_drive_energy"]
+        self.joint_brake_energy[:] = terms["joint_brake_energy"]
         self.yaw_joint_power[:] = terms["yaw_power"]
         dt = torch.as_tensor(
-            self.energy_sim_dt, device=self.device, dtype=self.yaw_joint_power.dtype
+            self.energy_sample_dt, device=self.device, dtype=self.yaw_joint_power.dtype
         )
-        self.yaw_joint_drive_energy += torch.clamp(self.yaw_joint_power, min=0.0) * dt
-        self.yaw_joint_brake_energy += torch.clamp(-self.yaw_joint_power, min=0.0) * dt
+        self.yaw_joint_drive_energy[:] = torch.clamp(self.yaw_joint_power, min=0.0) * dt
+        self.yaw_joint_brake_energy[:] = torch.clamp(-self.yaw_joint_power, min=0.0) * dt
 
 
     def reset(self):
@@ -282,7 +262,6 @@ class LeggedRobot(BaseTask):
         self.check_termination()
         self.compute_reward()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
-        self.pre_reset_root_states[:] = self.root_states[:]
         self.reset_idx(env_ids)
         self.compute_observations() # in some cases a simulation step might be required to refresh some obs (for example body positions)
 
@@ -725,7 +704,6 @@ class LeggedRobot(BaseTask):
         self.last_dof_vel = torch.zeros_like(self.dof_vel)
         self.last_root_vel = torch.zeros_like(self.root_states[:, 7:13])
         self.last_root_local_vel = torch.zeros_like(self.root_states[:, 7:10])
-        self.pre_reset_root_states = torch.zeros_like(self.root_states)
         self.commands = torch.zeros(self.num_envs, self.cfg.commands.num_commands, dtype=torch.float, device=self.device, requires_grad=False) # x vel, y vel, yaw vel, heading
         self.commands_scale = torch.tensor([self.obs_scales.lin_vel, self.obs_scales.lin_vel, self.obs_scales.ang_vel], device=self.device, requires_grad=False,) # TODO change this
         self.feet_air_time = torch.zeros(self.num_envs, self.feet_indices.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
@@ -940,13 +918,10 @@ class LeggedRobot(BaseTask):
         # save body names from the asset
         body_names = self.gym.get_asset_rigid_body_names(robot_asset)
         self.dof_names = self.gym.get_asset_dof_names(robot_asset)
-        self.body_names = body_names
         self.num_bodies = len(body_names)
         self.num_dofs = len(self.dof_names)
         feet_names = [s for s in body_names if self.cfg.asset.foot_name in s]
         knee_names = [s for s in body_names if self.cfg.asset.knee_name in s]
-        self.feet_names = feet_names
-        self.knee_names = knee_names
         penalized_contact_names = []
         for name in self.cfg.asset.penalize_contacts_on:
             penalized_contact_names.extend([s for s in body_names if name in s])

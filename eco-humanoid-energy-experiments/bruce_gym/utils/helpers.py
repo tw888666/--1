@@ -39,7 +39,6 @@ from isaacgym import gymapi
 from isaacgym import gymutil
 
 from bruce_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
-from bruce_gym.gpu_auto_select import select_idle_gpu, selected_gpu_from_env
 from bruce_gym.rotor_energy import SUPPORTED_ENERGY_COST_MODES
 
 
@@ -161,13 +160,6 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
                     f"Supported modes are: {SUPPORTED_ENERGY_COST_MODES}"
                 )
             env_cfg.env.energy_cost_mode = args.energy_cost_mode
-        train_command_x = getattr(args, "train_command_x", None)
-        if train_command_x is not None:
-            env_cfg.commands.ranges.lin_vel_x = [train_command_x, train_command_x]
-            print(
-                "Overriding training commands.ranges.lin_vel_x to "
-                f"[{train_command_x}, {train_command_x}]"
-            )
     if cfg_train is not None:
         if args.cost_limit1 is not None:
             cfg_train.algorithm.cost_limit1 = args.cost_limit1
@@ -217,18 +209,6 @@ def get_args():
             "help": "Resume training from a checkpoint",
         },
         {
-            "name": "--reset_optimizer_on_resume",
-            "action": "store_true",
-            "default": False,
-            "help": "When resuming, load model weights but reset optimizer states.",
-        },
-        {
-            "name": "--reset_lagrange_on_resume",
-            "action": "store_true",
-            "default": False,
-            "help": "When resuming, load model weights but reset Lagrange multipliers.",
-        },
-        {
             "name": "--experiment_name",
             "type": str,
             "help": "Name of the experiment to run or load. Overrides config file if provided.",
@@ -265,24 +245,6 @@ def get_args():
             "type": str,
             "default": "cuda:0",
             "help": "Device used by the RL algorithm, (cpu, gpu, cuda:0, cuda:1 etc..)",
-        },
-        {
-            "name": "--auto_select_gpu",
-            "action": "store_true",
-            "default": False,
-            "help": "Automatically select an idle NVIDIA GPU for simulation and RL.",
-        },
-        {
-            "name": "--auto_gpu_min_free_memory_mb",
-            "type": int,
-            "default": 4096,
-            "help": "Minimum free GPU memory for automatic GPU selection.",
-        },
-        {
-            "name": "--auto_gpu_max_utilization",
-            "type": int,
-            "default": 20,
-            "help": "Maximum GPU utilization percentage for automatic GPU selection.",
         },
         {
             "name": "--num_envs",
@@ -367,11 +329,6 @@ def get_args():
             "type": float,
             "default": 0.1,
             "help": "Fixed evaluation command in x velocity.",
-        },
-        {
-            "name": "--train_command_x",
-            "type": float,
-            "help": "Fixed training command in x velocity. Overrides commands.ranges.lin_vel_x when provided.",
         },
         {
             "name": "--command_y",
@@ -540,34 +497,6 @@ def get_args():
     args = gymutil.parse_arguments(
         description="RL Policy", custom_parameters=custom_parameters
     )
-
-    if args.auto_select_gpu:
-        selected_gpu = selected_gpu_from_env()
-        if selected_gpu is None:
-            selected_gpu = select_idle_gpu(
-                min_free_memory_mb=args.auto_gpu_min_free_memory_mb,
-                max_utilization=args.auto_gpu_max_utilization,
-            )
-
-        cuda_device_id = selected_gpu["cuda_device_id"]
-        if args.sim_device_type == "cuda":
-            args.compute_device_id = cuda_device_id
-        if str(args.rl_device).startswith("cuda"):
-            args.rl_device = f"cuda:{cuda_device_id}"
-
-        if selected_gpu_from_env() is None:
-            print(
-                "Auto-selected GPU "
-                f"{selected_gpu['index']} as cuda:{cuda_device_id} "
-                f"(free {selected_gpu['memory_free_mb']} MiB / "
-                f"{selected_gpu['memory_total_mb']} MiB, "
-                f"util {selected_gpu['utilization_gpu']}%)."
-            )
-        else:
-            print(
-                "Using auto-selected GPU "
-                f"{selected_gpu['index']} as cuda:{cuda_device_id}."
-            )
 
     # name allignment
     args.sim_device_id = args.compute_device_id
