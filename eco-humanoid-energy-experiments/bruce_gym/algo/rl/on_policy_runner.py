@@ -30,6 +30,8 @@
 # Copyright (c) 2024 Beijing RobotEra TECHNOLOGY CO.,LTD. All rights reserved.
 # Copyright (c) 2026 ECO Authors. All rights reserved.
 
+import hashlib
+import json
 import os
 import time
 import torch
@@ -124,6 +126,7 @@ class OnPolicyRunner:
         self.tot_time = 0
         self.current_learning_iteration = 0
         self.smooth_cost_mean = 0
+        self.initialization_metadata = {"mode": "fresh"}
         _, _ = self.env.reset()
         self.last_update = 0
 
@@ -493,6 +496,7 @@ class OnPolicyRunner:
             "iter": it,
             "total_time": self.tot_time,
             "infos": infos,
+            "initialization": self.initialization_metadata,
         }
         if hasattr(self, 'lagrange' + str(len(self.alg.use_cost_values)+1)):
             for i in range(len(self.alg.use_cost_values)+1):
@@ -519,7 +523,120 @@ class OnPolicyRunner:
             self.tot_time = loaded_dict["total_time"]
         if "iter" in loaded_dict:
             self.current_learning_iteration = loaded_dict["iter"] + 1
+        if "initialization" in loaded_dict:
+            self.initialization_metadata = loaded_dict["initialization"]
         return loaded_dict["infos"]
+
+    @staticmethod
+    def _sha256_file(path):
+        digest = hashlib.sha256()
+        with open(path, "rb") as checkpoint_file:
+            for chunk in iter(lambda: checkpoint_file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    @staticmethod
+    def _state_dict_sha256(state_dict):
+        digest = hashlib.sha256()
+        for name in sorted(state_dict):
+            tensor = state_dict[name].detach().cpu().contiguous()
+            digest.update(name.encode("utf-8"))
+            digest.update(str(tensor.dtype).encode("ascii"))
+            digest.update(str(tuple(tensor.shape)).encode("ascii"))
+            digest.update(tensor.numpy().tobytes())
+        return digest.hexdigest()
+
+    def _reset_cost_critic(self, reset_seed):
+        cuda_devices = []
+        first_parameter = next(self.alg.actor_critic.cost_critic.parameters(), None)
+        if first_parameter is not None and first_parameter.is_cuda:
+            cuda_devices = [first_parameter.device.index]
+        with torch.random.fork_rng(devices=cuda_devices):
+            torch.manual_seed(int(reset_seed))
+            for module in self.alg.actor_critic.cost_critic.modules():
+                if hasattr(module, "reset_parameters"):
+                    module.reset_parameters()
+
+    def _reset_optimization_state(self):
+        self.alg.optimizer.state.clear()
+        self.alg.cost_value_optimizer.state.clear()
+        for index in range(1, self.constraint_num + 1):
+            lagrange = getattr(self, f"lagrange{index}")
+            init_value = max(
+                float(self.alg_cfg.get(f"lagrangian_multiplier_init{index}", 0.0)),
+                0.0,
+            )
+            with torch.no_grad():
+                lagrange.lagrangian_multiplier.fill_(init_value)
+            lagrange.lambda_optimizer.state.clear()
+            lagrange.previous_cost = None
+
+    def load_warm_start(self, path, reset_seed):
+        """Load policy/reward-value weights and reset cost-specific training state."""
+
+        loaded_dict = torch.load(path, map_location=self.device)
+        if "model_state_dict" not in loaded_dict:
+            raise ValueError(f"Checkpoint has no model_state_dict: {path}")
+
+        source_state = loaded_dict["model_state_dict"]
+        target_state = self.alg.actor_critic.state_dict()
+        cost_keys = {name for name in target_state if name.startswith("cost_critic.")}
+        transferable_keys = set(target_state) - cost_keys
+        missing_source_keys = sorted(transferable_keys - set(source_state))
+        if missing_source_keys:
+            raise ValueError(
+                "Warm-start checkpoint is missing policy/reward keys: "
+                + ", ".join(missing_source_keys)
+            )
+
+        transfer_state = {name: source_state[name] for name in transferable_keys}
+        incompatible = self.alg.actor_critic.load_state_dict(transfer_state, strict=False)
+        if set(incompatible.missing_keys) != cost_keys or incompatible.unexpected_keys:
+            raise ValueError(
+                "Unexpected warm-start state mismatch: "
+                f"missing={incompatible.missing_keys}, "
+                f"unexpected={incompatible.unexpected_keys}"
+            )
+
+        self._reset_cost_critic(reset_seed)
+        self._reset_optimization_state()
+        self.current_learning_iteration = 0
+        self.tot_timesteps = 0
+        self.tot_time = 0
+        self.smooth_cost_mean = 0
+        self.last_update = 0
+
+        cost_state = self.alg.actor_critic.cost_critic.state_dict()
+        env_cfg = getattr(getattr(self.env, "cfg", None), "env", None)
+        metadata = {
+            "mode": "policy_reward_critic_warm_start",
+            "source_checkpoint": os.path.abspath(path),
+            "source_checkpoint_sha256": self._sha256_file(path),
+            "source_checkpoint_iteration": loaded_dict.get("iter"),
+            "loaded_parameter_groups": ["actor", "critic", "std"],
+            "reset_parameter_groups": ["cost_critic"],
+            "reset_optimizers": [
+                "policy_optimizer",
+                "cost_value_optimizer",
+                "lagrange_optimizers",
+            ],
+            "reset_lagrange_multipliers": True,
+            "reset_iteration": 0,
+            "cost_critic_reset_seed": int(reset_seed),
+            "cost_critic_initial_sha256": self._state_dict_sha256(cost_state),
+            "energy_cost_mode": getattr(self.env, "energy_cost_mode", None),
+            "cost_limit1": getattr(env_cfg, "cost_limit1", None),
+            "num_envs": int(self.env.num_envs),
+            "training_seed": self.all_cfg.get("seed"),
+        }
+        self.initialization_metadata = metadata
+        if self.log_dir is not None:
+            os.makedirs(self.log_dir, exist_ok=True)
+            metadata_path = os.path.join(self.log_dir, "warm_start_metadata.json")
+            with open(metadata_path, "w", encoding="utf-8") as metadata_file:
+                json.dump(metadata, metadata_file, ensure_ascii=False, indent=2)
+        print(json.dumps(metadata, ensure_ascii=False, indent=2))
+        return metadata
 
     def get_inference_policy(self, device=None):
         self.alg.actor_critic.eval()  # switch to evaluation mode (dropout for example)

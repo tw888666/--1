@@ -137,6 +137,9 @@ class TaskRegistry():
         # override cfg from args (if specified)
         _, train_cfg = update_cfg_from_args(None, train_cfg, args)
         resume = train_cfg.runner.resume
+        warm_start = bool(getattr(args, "warm_start", False))
+        if resume and warm_start:
+            raise ValueError("--resume and --warm_start are mutually exclusive.")
         if resume:
             if log_root=="default":
                 log_root = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name)
@@ -168,6 +171,14 @@ class TaskRegistry():
             resume_path = get_load_path(log_root, load_run=train_cfg.runner.load_run, checkpoint=train_cfg.runner.checkpoint)
             print(f"Loading model from: {resume_path}")
             runner.load(resume_path, load_optimizer=True)
+        elif warm_start:
+            warm_start_path = get_load_path(
+                log_root,
+                load_run=train_cfg.runner.load_run,
+                checkpoint=train_cfg.runner.checkpoint,
+            )
+            print(f"Warm-starting actor and reward critic from: {warm_start_path}")
+            runner.load_warm_start(warm_start_path, reset_seed=train_cfg.seed)
         return runner, train_cfg
 
 # make global task registry

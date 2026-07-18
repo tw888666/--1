@@ -209,6 +209,16 @@ def get_args():
             "help": "Resume training from a checkpoint",
         },
         {
+            "name": "--warm_start",
+            "action": "store_true",
+            "default": False,
+            "help": (
+                "Initialize actor, reward critic, and action noise from a "
+                "checkpoint while resetting the cost critic, optimizers, "
+                "Lagrange multipliers, counters, and rollout state."
+            ),
+        },
+        {
             "name": "--experiment_name",
             "type": str,
             "help": "Name of the experiment to run or load. Overrides config file if provided.",
@@ -221,12 +231,12 @@ def get_args():
         {
             "name": "--load_run",
             "type": str,
-            "help": "Name of the run to load when resume=True. If -1: will load the last run. Overrides config file if provided.",
+            "help": "Run to load for resume or warm start. If -1: load the last run. Overrides config file if provided.",
         },
         {
             "name": "--checkpoint",
             "type": int,
-            "help": "Saved model checkpoint number. If -1: will load the last checkpoint. Overrides config file if provided.",
+            "help": "Checkpoint for resume or warm start. If -1: load the last checkpoint. Overrides config file if provided.",
         },
         {
             "name": "--headless",
