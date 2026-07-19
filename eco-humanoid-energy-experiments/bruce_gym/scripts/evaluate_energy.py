@@ -18,7 +18,10 @@ from tqdm import tqdm
 
 from bruce_gym import LEGGED_GYM_ROOT_DIR
 from bruce_gym.energy_reporting import rotor_energy_totals
-from bruce_gym.eval_review import generate_review
+from bruce_gym.eval_review import (
+    generate_review,
+    resolve_evaluation_body_and_feet_names,
+)
 from bruce_gym.envs import *  # noqa: F401,F403
 from bruce_gym.naming import policy_id
 from bruce_gym.rotor_energy import (
@@ -376,8 +379,7 @@ def evaluate(args):
     env.compute_observations()
     obs = env.get_observations()
 
-    feet_names = getattr(env, "feet_names", [])
-    body_names = getattr(env, "body_names", [])
+    body_names, feet_names = resolve_evaluation_body_and_feet_names(env)
     print("DOF_NAMES:", env.dof_names)
     print("FEET_NAMES:", feet_names)
     JOINT_NAMES = bruce_joint_names_from_dof_names(env.dof_names)
@@ -396,7 +398,7 @@ def evaluate(args):
         "command_x": args.command_x,
         "command_y": args.command_y,
         "command_yaw": args.command_yaw,
-        "gait_phase_offset": env.gait_phase_offset,
+        "gait_phase_offset": getattr(env, "gait_phase_offset", 0.0),
         "mirrored_policy": args.eval_mirrored_policy,
         "policy_dt": env.dt,
         "sim_dt": env.sim_params.dt,
@@ -466,9 +468,23 @@ def evaluate(args):
                 pre_step_state_valid = True
                 pre_step_dynamic_state_valid = episode_step > 0
                 post_step_state_valid = not done
-                post_step_root_pos = _tensor_list(
-                    env.pre_reset_root_states[robot_index, :3]
-                )
+                if hasattr(env, "pre_reset_root_states"):
+                    post_step_root_pos = _tensor_list(
+                        env.pre_reset_root_states[robot_index, :3]
+                    )
+                elif done:
+                    # Original ECO resets root_states inside env.step(). Without
+                    # a pre-reset snapshot, exclude this invalid boundary step
+                    # instead of recording the reset teleport as locomotion.
+                    post_step_root_pos = [
+                        pre_step_state["pre_step_root_pos_x"],
+                        pre_step_state["pre_step_root_pos_y"],
+                        pre_step_state["pre_step_root_pos_z"],
+                    ]
+                else:
+                    post_step_root_pos = _tensor_list(
+                        env.root_states[robot_index, :3]
+                    )
                 world_dx = (
                     post_step_root_pos[0] - pre_step_state["pre_step_root_pos_x"]
                 )

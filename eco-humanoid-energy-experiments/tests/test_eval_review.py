@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 from bruce_gym.eval_review import (
@@ -14,6 +15,7 @@ from bruce_gym.eval_review import (
     _write_csv_dicts,
     build_gait_stage_joint_energy,
     generate_review,
+    resolve_evaluation_body_and_feet_names,
     select_representatives,
 )
 
@@ -34,6 +36,35 @@ def _write_csv(path, rows):
 
 
 class EvalReviewTests(unittest.TestCase):
+    def test_resolves_body_and_feet_names_from_actor_when_metadata_is_absent(self):
+        gym = mock.Mock()
+        gym.get_actor_rigid_body_names.return_value = [
+            "base_link",
+            "ankle_pitch_link_l",
+            "ankle_pitch_link_r",
+        ]
+        env = SimpleNamespace(
+            gym=gym,
+            envs=["env_handle"],
+            actor_handles=["actor_handle"],
+            cfg=SimpleNamespace(asset=SimpleNamespace(foot_name="ankle_pitch")),
+        )
+
+        body_names, feet_names = resolve_evaluation_body_and_feet_names(env)
+
+        self.assertEqual(
+            body_names,
+            ["base_link", "ankle_pitch_link_l", "ankle_pitch_link_r"],
+        )
+        self.assertEqual(
+            feet_names,
+            ["ankle_pitch_link_l", "ankle_pitch_link_r"],
+        )
+        gym.get_actor_rigid_body_names.assert_called_once_with(
+            "env_handle",
+            "actor_handle",
+        )
+
     def test_evaluation_variant_description_is_chinese(self):
         self.assertEqual(
             _evaluation_variant_description(

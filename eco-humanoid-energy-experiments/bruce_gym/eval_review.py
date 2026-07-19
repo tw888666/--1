@@ -80,6 +80,26 @@ ENERGY_COST_MODE_NAMES_ZH = {
 }
 
 
+def resolve_evaluation_body_and_feet_names(env):
+    """Resolve link names without requiring training-only metadata attributes."""
+
+    body_names = list(getattr(env, "body_names", ()) or ())
+    if not body_names:
+        body_names = list(
+            env.gym.get_actor_rigid_body_names(
+                env.envs[0],
+                env.actor_handles[0],
+            )
+        )
+
+    feet_names = list(getattr(env, "feet_names", ()) or ())
+    if not feet_names:
+        foot_name = env.cfg.asset.foot_name
+        feet_names = [name for name in body_names if foot_name in name]
+
+    return body_names, feet_names
+
+
 def _to_float(value, default=0.0):
     if value is None or value == "":
         return default
