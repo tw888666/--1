@@ -42,7 +42,7 @@ from bruce_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
 from bruce_gym.gpu_auto_select import select_idle_gpu, selected_gpu_from_env
 from bruce_gym.rotor_energy import (
     SUPPORTED_ENERGY_COST_MODES,
-    parse_efficiency_spec,
+    parse_reducer_rated_torque_spec,
 )
 
 
@@ -164,19 +164,10 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
                     f"Supported modes are: {SUPPORTED_ENERGY_COST_MODES}"
                 )
             env_cfg.env.energy_cost_mode = args.energy_cost_mode
-        reducer_motoring_efficiency = getattr(
-            args, "reducer_motoring_efficiency", None
-        )
-        if reducer_motoring_efficiency is not None:
-            env_cfg.env.reducer_motoring_efficiency = parse_efficiency_spec(
-                reducer_motoring_efficiency
-            )
-        reducer_generating_efficiency = getattr(
-            args, "reducer_generating_efficiency", None
-        )
-        if reducer_generating_efficiency is not None:
-            env_cfg.env.reducer_generating_efficiency = parse_efficiency_spec(
-                reducer_generating_efficiency
+        reducer_rated_torque = getattr(args, "reducer_rated_torque", None)
+        if reducer_rated_torque is not None:
+            env_cfg.env.reducer_rated_torque = parse_reducer_rated_torque_spec(
+                reducer_rated_torque
             )
         train_command_x = getattr(args, "train_command_x", None)
         if train_command_x is not None:
@@ -362,20 +353,11 @@ def get_args():
             "help": f"Energy cost mode. Supported: {SUPPORTED_ENERGY_COST_MODES}.",
         },
         {
-            "name": "--reducer_motoring_efficiency",
+            "name": "--reducer_rated_torque",
             "type": str,
             "help": (
-                "Reducer motoring efficiency eta_g,mot: one shared value or "
-                "eight comma-separated motor values. Required for "
-                "reducer_corrected_8."
-            ),
-        },
-        {
-            "name": "--reducer_generating_efficiency",
-            "type": str,
-            "help": (
-                "Reducer generating efficiency eta_g,gen: one shared value or "
-                "eight comma-separated motor values. Required for "
+                "Reducer output-side rated torque T_N in N m: one shared value "
+                "or eight comma-separated motor values. Required for "
                 "reducer_corrected_8."
             ),
         },
@@ -576,11 +558,8 @@ def get_args():
         description="RL Policy", custom_parameters=custom_parameters
     )
 
-    args.reducer_motoring_efficiency = parse_efficiency_spec(
-        args.reducer_motoring_efficiency
-    )
-    args.reducer_generating_efficiency = parse_efficiency_spec(
-        args.reducer_generating_efficiency
+    args.reducer_rated_torque = parse_reducer_rated_torque_spec(
+        args.reducer_rated_torque
     )
 
     if args.auto_select_gpu:

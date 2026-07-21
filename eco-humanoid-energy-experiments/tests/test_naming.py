@@ -3,7 +3,7 @@ import unittest
 from bruce_gym.naming import (
     energy_cost_alias,
     policy_id,
-    reducer_efficiency_suffix,
+    reducer_rated_torque_suffix,
     velocity_token,
 )
 
@@ -22,10 +22,25 @@ class NamingTests(unittest.TestCase):
         self.assertEqual(energy_cost_alias("rotor_mixed_8_alpha050"), "rm8a05")
         self.assertEqual(energy_cost_alias("reducer_corrected_8"), "rc8")
 
-    def test_reducer_efficiency_suffix_is_explicit_for_shared_values(self):
+    def test_reducer_rated_torque_suffix_is_explicit_for_shared_value(self):
         self.assertEqual(
-            reducer_efficiency_suffix(0.9, 0.5),
-            "etam090_etag050",
+            reducer_rated_torque_suffix(12.5),
+            "tn12p5",
+        )
+        self.assertNotEqual(
+            reducer_rated_torque_suffix(12.345611),
+            reducer_rated_torque_suffix(12.345612),
+        )
+
+    def test_reducer_rated_torque_suffix_is_stable_and_order_sensitive(self):
+        values = [10, 11, 12, 13, 14, 15, 16, 17]
+        self.assertEqual(
+            reducer_rated_torque_suffix(values),
+            reducer_rated_torque_suffix(tuple(values)),
+        )
+        self.assertNotEqual(
+            reducer_rated_torque_suffix(values),
+            reducer_rated_torque_suffix(list(reversed(values))),
         )
 
     def test_policy_id_matches_directory_rule(self):

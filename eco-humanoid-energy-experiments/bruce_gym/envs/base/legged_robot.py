@@ -53,8 +53,8 @@ from bruce_gym.rotor_energy import (
     assert_bruce_dof_order,
     compute_bruce_energy_terms,
     energy_cost_from_terms,
-    make_efficiency_tensor,
     make_bruce_transmission_tensors,
+    make_reducer_rated_torque_tensor,
 )
 from .legged_robot_config import LeggedRobotCfg
 
@@ -167,24 +167,13 @@ class LeggedRobot(BaseTask):
         self._bruce_transmission = make_bruce_transmission_tensors(
             self.torques.device, self.torques.dtype, self.koala_gear_ratio
         )
-        self.reducer_motoring_efficiency = None
-        self.reducer_generating_efficiency = None
+        self.reducer_rated_torque = None
         if self.energy_cost_mode == REDUCER_CORRECTED_8:
-            self.reducer_motoring_efficiency = make_efficiency_tensor(
-                getattr(self.cfg.env, "reducer_motoring_efficiency", None),
+            self.reducer_rated_torque = make_reducer_rated_torque_tensor(
+                getattr(self.cfg.env, "reducer_rated_torque", None),
                 self.torques.device,
                 self.torques.dtype,
-                "reducer_motoring_efficiency",
-                allow_zero=False,
             )
-            self.reducer_generating_efficiency = make_efficiency_tensor(
-                getattr(self.cfg.env, "reducer_generating_efficiency", None),
-                self.torques.device,
-                self.torques.dtype,
-                "reducer_generating_efficiency",
-                allow_zero=True,
-            )
-
         self.cost1_buf = torch.zeros(
             self.num_envs, dtype=torch.float, device=self.device, requires_grad=False
         )
@@ -197,6 +186,10 @@ class LeggedRobot(BaseTask):
         self.rotor_power = torch.zeros_like(self.rotor_output_torque)
         self.rotor_drive_energy_per_motor = torch.zeros_like(self.rotor_output_torque)
         self.rotor_brake_energy_per_motor = torch.zeros_like(self.rotor_output_torque)
+        self.reducer_corrected_energy_per_motor = torch.zeros_like(
+            self.rotor_output_torque
+        )
+        self.reducer_corrected_energy = torch.zeros_like(self.cost1_buf)
         self.rotor_drive_energy = torch.zeros_like(self.cost1_buf)
         self.rotor_brake_energy = torch.zeros_like(self.cost1_buf)
         self.joint_power = torch.zeros(
@@ -219,6 +212,8 @@ class LeggedRobot(BaseTask):
         self.cost1_buf.zero_()
         self.rotor_drive_energy_per_motor.zero_()
         self.rotor_brake_energy_per_motor.zero_()
+        self.reducer_corrected_energy_per_motor.zero_()
+        self.reducer_corrected_energy.zero_()
         self.rotor_drive_energy.zero_()
         self.rotor_brake_energy.zero_()
         self.joint_drive_energy_per_joint.zero_()
@@ -240,20 +235,17 @@ class LeggedRobot(BaseTask):
             self.energy_sim_dt,
             transmission=self._bruce_transmission,
             gear_ratio=self.koala_gear_ratio,
+            reducer_rated_torque=self.reducer_rated_torque,
         )
         if self.energy_cost_mode == LEGACY_JOINT_ABS_10:
             self.cost1_buf[:] = energy_cost_from_terms(
                 terms,
                 self.energy_cost_mode,
-                self.reducer_motoring_efficiency,
-                self.reducer_generating_efficiency,
             )
         else:
             self.cost1_buf += energy_cost_from_terms(
                 terms,
                 self.energy_cost_mode,
-                self.reducer_motoring_efficiency,
-                self.reducer_generating_efficiency,
             )
 
         self.rotor_output_torque[:] = terms["output_torque"]
@@ -263,6 +255,13 @@ class LeggedRobot(BaseTask):
         self.rotor_power[:] = terms["rotor_power"]
         self.rotor_drive_energy_per_motor += terms["rotor_drive_energy_per_motor"]
         self.rotor_brake_energy_per_motor += terms["rotor_brake_energy_per_motor"]
+        if "reducer_corrected_energy_per_motor" in terms:
+            self.reducer_corrected_energy_per_motor += terms[
+                "reducer_corrected_energy_per_motor"
+            ]
+            self.reducer_corrected_energy[:] = (
+                self.reducer_corrected_energy_per_motor.sum(dim=-1)
+            )
         self.rotor_drive_energy[:] = self.rotor_drive_energy_per_motor.sum(dim=-1)
         self.rotor_brake_energy[:] = self.rotor_brake_energy_per_motor.sum(dim=-1)
         self.joint_power[:] = terms["joint_power_all"]

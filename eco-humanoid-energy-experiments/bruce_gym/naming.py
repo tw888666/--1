@@ -35,10 +35,10 @@ def energy_cost_alias(mode: str) -> str:
     return ENERGY_COST_ALIASES.get(mode, mode)
 
 
-def reducer_efficiency_suffix(motoring, generating):
-    """Return a stable suffix that prevents efficiency variants colliding."""
+def reducer_rated_torque_suffix(rated_torque):
+    """Return a stable suffix that prevents rated-torque variants colliding."""
 
-    if motoring is None or generating is None:
+    if rated_torque is None:
         return None
 
     def _values(value):
@@ -48,19 +48,18 @@ def reducer_efficiency_suffix(motoring, generating):
             return [float(value)]
         return [float(item) for item in value]
 
-    motoring_values = _values(motoring)
-    generating_values = _values(generating)
-    if len(motoring_values) == 1 and len(generating_values) == 1:
-        return "etam{:03d}_etag{:03d}".format(
-            int(round(motoring_values[0] * 100)),
-            int(round(generating_values[0] * 100)),
-        )
+    rated_torque_values = _values(rated_torque)
+    if len(rated_torque_values) == 1:
+        # 17 significant digits round-trip a Python float, while familiar
+        # values such as 12.5 keep the readable ``tn12p5`` form.
+        token = format(rated_torque_values[0], ".17g").replace(".", "p")
+        return f"tn{token}"
     payload = json.dumps(
-        {"motoring": motoring_values, "generating": generating_values},
+        {"rated_torque": rated_torque_values},
         sort_keys=True,
         separators=(",", ":"),
     )
-    return "eta" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8]
+    return "tn" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:8]
 
 
 def policy_id(command_x, energy_cost_mode: str, seed, checkpoint, suffix=None) -> str:

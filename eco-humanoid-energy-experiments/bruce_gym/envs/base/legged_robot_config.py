@@ -41,10 +41,10 @@ class LeggedRobotCfg(BaseConfig):
         env_spacing = 3.  # not used with heightfields/trimeshes 
         send_timeouts = True # send time out information to the algorithm
         episode_length_s = 20 # episode length in seconds
-        # Required only by energy_cost_mode="reducer_corrected_8". Each field
-        # accepts one shared value or eight values in BRUCE rotor order.
-        reducer_motoring_efficiency = None
-        reducer_generating_efficiency = None
+        # Required only by energy_cost_mode="reducer_corrected_8". This is the
+        # reducer output-side rated torque T_N, not the URDF effort limit.
+        # Accepts one shared value or eight values in BRUCE rotor order.
+        reducer_rated_torque = None
 
     class terrain:
         mesh_type = 'trimesh' # "heightfield" # none, plane, heightfield or trimesh

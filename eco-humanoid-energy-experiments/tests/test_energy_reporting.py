@@ -19,13 +19,12 @@ class EnergyReportingTests(unittest.TestCase):
         totals = rotor_energy_totals(
             rotor_positive_energy=[1.0, 2.0, 3.0],
             rotor_negative_energy=[0.5, 1.5, 2.5],
-            reducer_motoring_efficiency=0.8,
-            reducer_generating_efficiency=0.4,
+            reducer_corrected_energy=[1.8, 3.2, 4.7],
         )
 
         self.assertAlmostEqual(
             totals["reducer_corrected_energy_8"],
-            6.0 / 0.8 - 0.4 * 4.5,
+            9.7,
         )
 
 

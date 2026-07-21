@@ -2,6 +2,7 @@
 #
 # Copyright (c) 2026 ECO Authors. All rights reserved.
 
+import math
 from typing import Dict, Optional
 
 import torch
@@ -62,6 +63,8 @@ ROTOR_MIXED_8 = "rotor_mixed_8"
 ROTOR_MIXED_8_ALPHA050 = "rotor_mixed_8_alpha050"
 REDUCER_CORRECTED_8 = "reducer_corrected_8"
 ROTOR_MIXED_BRAKE_ALPHA = 0.5
+REDUCER_POSITIVE_EFFICIENCY_SCALE = 0.905
+REDUCER_POSITIVE_EFFICIENCY_OFFSET = 0.2735
 
 SUPPORTED_ENERGY_COST_MODES = (
     LEGACY_JOINT_ABS_10,
@@ -87,15 +90,15 @@ def compute_rotor_mixed_energy(rotor_positive_energy, rotor_negative_energy):
     return rotor_positive_energy + ROTOR_MIXED_BRAKE_ALPHA * rotor_negative_energy
 
 
-def parse_efficiency_spec(value):
-    """Parse one shared efficiency or eight comma-separated motor values."""
+def parse_reducer_rated_torque_spec(value):
+    """Parse one shared rated torque or eight per-motor values."""
 
     if value is None:
         return None
     if isinstance(value, str):
         parts = [part.strip() for part in value.split(",") if part.strip()]
         if not parts:
-            raise ValueError("Efficiency specification must not be empty.")
+            raise ValueError("Reducer rated torque specification must not be empty.")
         values = [float(part) for part in parts]
     elif isinstance(value, (int, float)):
         values = [float(value)]
@@ -104,54 +107,90 @@ def parse_efficiency_spec(value):
 
     if len(values) not in (1, len(BRUCE_ROTOR_NAMES)):
         raise ValueError(
-            "Efficiency specification must contain either one shared value or "
+            "Reducer rated torque must contain one shared value or "
             f"{len(BRUCE_ROTOR_NAMES)} per-motor values; got {len(values)}."
+        )
+    if any(not math.isfinite(item) or item <= 0.0 for item in values):
+        raise ValueError(
+            "Reducer rated torque values must be finite and positive."
         )
     return values[0] if len(values) == 1 else tuple(values)
 
 
-def make_efficiency_tensor(
+def make_reducer_rated_torque_tensor(
     values,
     device: torch.device,
     dtype: torch.dtype,
-    name: str,
-    allow_zero: bool,
 ) -> torch.Tensor:
-    """Build and validate an eight-motor efficiency tensor."""
+    """Build and validate positive output-side rated torques for eight motors."""
 
-    values = parse_efficiency_spec(values)
+    values = parse_reducer_rated_torque_spec(values)
     if values is None:
         raise ValueError(
-            f"{name} is required when energy_cost_mode={REDUCER_CORRECTED_8}."
+            f"reducer_rated_torque is required when "
+            f"energy_cost_mode={REDUCER_CORRECTED_8}."
         )
     tensor = torch.as_tensor(values, device=device, dtype=dtype)
     if tensor.ndim == 0:
         tensor = tensor.repeat(len(BRUCE_ROTOR_NAMES))
     if tuple(tensor.shape) != (len(BRUCE_ROTOR_NAMES),):
         raise ValueError(
-            f"{name} must be scalar or have shape ({len(BRUCE_ROTOR_NAMES)},), "
-            f"got {tuple(tensor.shape)}."
+            "reducer_rated_torque must be scalar or have shape "
+            f"({len(BRUCE_ROTOR_NAMES)},), got {tuple(tensor.shape)}."
         )
-    lower_bound = 0.0 if allow_zero else torch.finfo(dtype).eps
-    if not torch.isfinite(tensor).all().item():
-        raise ValueError(f"{name} must contain only finite values.")
-    if torch.any(tensor < lower_bound).item() or torch.any(tensor > 1.0).item():
-        interval = "[0, 1]" if allow_zero else "(0, 1]"
-        raise ValueError(f"{name} values must lie in {interval}.")
+    if not torch.isfinite(tensor).all().item() or torch.any(tensor <= 0.0).item():
+        raise ValueError("reducer_rated_torque values must be finite and positive.")
     return tensor
 
 
-def compute_reducer_corrected_energy(
-    rotor_positive_energy_per_motor: torch.Tensor,
-    rotor_negative_energy_per_motor: torch.Tensor,
-    motoring_efficiency: torch.Tensor,
-    generating_efficiency: torch.Tensor,
-) -> torch.Tensor:
-    """Compute sum_j(E_g,j^+ / eta_g,mot,j - eta_g,gen,j E_g,j^-)."""
+def reducer_positive_efficiency(rated_torque_ratio: torch.Tensor) -> torch.Tensor:
+    """Return eta(x)=0.905*x/(x+0.2735), x=abs(T)/T_N."""
 
     return (
-        rotor_positive_energy_per_motor / motoring_efficiency
-        - generating_efficiency * rotor_negative_energy_per_motor
+        REDUCER_POSITIVE_EFFICIENCY_SCALE
+        * rated_torque_ratio
+        / (rated_torque_ratio + REDUCER_POSITIVE_EFFICIENCY_OFFSET)
+    )
+
+
+def compute_reducer_corrected_energy_per_motor(
+    rotor_power: torch.Tensor,
+    output_torque: torch.Tensor,
+    rated_torque: torch.Tensor,
+    sim_dt: float,
+) -> torch.Tensor:
+    """Compute P+ / eta(abs(T)/T_N) + P- for one physics substep."""
+
+    positive_power = torch.clamp(rotor_power, min=0.0)
+    negative_power_magnitude = torch.clamp(-rotor_power, min=0.0)
+    rated_torque_ratio = torch.abs(output_torque) / rated_torque
+    drive_mask = positive_power > 0.0
+    safe_ratio = torch.where(
+        drive_mask, rated_torque_ratio, torch.ones_like(rated_torque_ratio)
+    )
+    # Use the algebraically equivalent form only on the positive-drive mask to
+    # avoid evaluating 0/0 when both torque and positive power are zero.
+    positive_input_power = torch.where(
+        drive_mask,
+        positive_power
+        * (safe_ratio + REDUCER_POSITIVE_EFFICIENCY_OFFSET)
+        / (REDUCER_POSITIVE_EFFICIENCY_SCALE * safe_ratio),
+        torch.zeros_like(positive_power),
+    )
+    dt = torch.as_tensor(sim_dt, device=rotor_power.device, dtype=rotor_power.dtype)
+    return (positive_input_power + negative_power_magnitude) * dt
+
+
+def compute_reducer_corrected_energy(
+    rotor_power: torch.Tensor,
+    output_torque: torch.Tensor,
+    rated_torque: torch.Tensor,
+    sim_dt: float,
+) -> torch.Tensor:
+    """Sum the nonlinear positive-power and absolute-negative-power cost."""
+
+    return compute_reducer_corrected_energy_per_motor(
+        rotor_power, output_torque, rated_torque, sim_dt
     ).sum(dim=-1)
 
 
@@ -279,6 +318,7 @@ def compute_bruce_energy_terms(
     sim_dt: float,
     transmission: Optional[Dict[str, torch.Tensor]] = None,
     gear_ratio: float = 9.0,
+    reducer_rated_torque: Optional[torch.Tensor] = None,
 ) -> Dict[str, torch.Tensor]:
     rotor = compute_bruce_rotor_power(
         joint_torques, joint_velocities, transmission, gear_ratio
@@ -322,6 +362,21 @@ def compute_bruce_energy_terms(
         "drive_joint_brake_energy": drive_joint_brake_energy_per_joint.sum(dim=-1),
         "legacy_joint_abs_10_cost": torch.abs(joint_power_all).sum(dim=-1),
     }
+    if reducer_rated_torque is not None:
+        reducer_corrected_energy_per_motor = (
+            compute_reducer_corrected_energy_per_motor(
+                rotor_power,
+                rotor["output_torque"],
+                reducer_rated_torque,
+                sim_dt,
+            )
+        )
+        terms["reducer_corrected_energy_per_motor"] = (
+            reducer_corrected_energy_per_motor
+        )
+        terms["reducer_corrected_energy"] = (
+            reducer_corrected_energy_per_motor.sum(dim=-1)
+        )
     terms["joint_abs_energy"] = terms["joint_drive_energy"] + terms["joint_brake_energy"]
     terms["drive_joint_abs_energy"] = (
         terms["drive_joint_drive_energy"] + terms["drive_joint_brake_energy"]
@@ -336,8 +391,6 @@ def compute_bruce_energy_terms(
 def energy_cost_from_terms(
     terms: Dict[str, torch.Tensor],
     mode: str,
-    reducer_motoring_efficiency: Optional[torch.Tensor] = None,
-    reducer_generating_efficiency: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     if mode == LEGACY_JOINT_ABS_10:
         return terms["legacy_joint_abs_10_cost"]
@@ -352,17 +405,11 @@ def energy_cost_from_terms(
     if mode in (ROTOR_MIXED_8, ROTOR_MIXED_8_ALPHA050):
         return terms["rotor_mixed_energy"]
     if mode == REDUCER_CORRECTED_8:
-        if reducer_motoring_efficiency is None or reducer_generating_efficiency is None:
+        if "reducer_corrected_energy" not in terms:
             raise ValueError(
-                "Reducer-corrected energy requires motoring and generating "
-                "efficiency tensors."
+                "Reducer-corrected energy requires reducer_rated_torque."
             )
-        return compute_reducer_corrected_energy(
-            terms["rotor_drive_energy_per_motor"],
-            terms["rotor_brake_energy_per_motor"],
-            reducer_motoring_efficiency,
-            reducer_generating_efficiency,
-        )
+        return terms["reducer_corrected_energy"]
     raise ValueError(f"Unsupported energy cost mode: {mode}")
 
 
@@ -372,10 +419,7 @@ def energy_costs_from_policy_step_buffers(
     joint_brake_energy_per_joint: torch.Tensor,
     rotor_drive_energy: torch.Tensor,
     rotor_brake_energy: torch.Tensor,
-    rotor_drive_energy_per_motor: Optional[torch.Tensor] = None,
-    rotor_brake_energy_per_motor: Optional[torch.Tensor] = None,
-    reducer_motoring_efficiency: Optional[torch.Tensor] = None,
-    reducer_generating_efficiency: Optional[torch.Tensor] = None,
+    reducer_corrected_energy: Optional[torch.Tensor] = None,
 ) -> Dict[str, torch.Tensor]:
     """Reconstruct every control cost from one shared policy-step trajectory."""
 
@@ -394,17 +438,6 @@ def energy_costs_from_policy_step_buffers(
             dim=-1
         ),
     }
-    reducer_inputs = (
-        rotor_drive_energy_per_motor,
-        rotor_brake_energy_per_motor,
-        reducer_motoring_efficiency,
-        reducer_generating_efficiency,
-    )
-    if all(value is not None for value in reducer_inputs):
-        costs[REDUCER_CORRECTED_8] = compute_reducer_corrected_energy(
-            rotor_drive_energy_per_motor,
-            rotor_brake_energy_per_motor,
-            reducer_motoring_efficiency,
-            reducer_generating_efficiency,
-        )
+    if reducer_corrected_energy is not None:
+        costs[REDUCER_CORRECTED_8] = reducer_corrected_energy
     return costs

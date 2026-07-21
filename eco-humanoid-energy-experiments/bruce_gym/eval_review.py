@@ -963,6 +963,17 @@ def _write_report(
             ]
         )
 
+    reducer_rated_torque = metadata.get("reducer_rated_torque")
+    reducer_rated_torque_line = []
+    if reducer_rated_torque is not None:
+        if isinstance(reducer_rated_torque, (list, tuple)):
+            reducer_rated_torque = ",".join(
+                format(float(value), ".17g") for value in reducer_rated_torque
+            )
+        reducer_rated_torque_line = [
+            f"  --reducer_rated_torque={reducer_rated_torque} \\",
+        ]
+
     lines.extend(
         [
             "## Video Replay",
@@ -978,6 +989,7 @@ def _write_report(
             f"  --load_run={metadata.get('load_run', '<load_run>')} \\",
             f"  --checkpoint={metadata.get('checkpoint', '<checkpoint>')} \\",
             f"  --energy_cost_mode={metadata.get('energy_cost_mode', '<mode>')} \\",
+            *reducer_rated_torque_line,
             f"  --command_x={metadata.get('command_x', 0.1)} \\",
             f"  --command_y={metadata.get('command_y', 0.0)} \\",
             f"  --command_yaw={metadata.get('command_yaw', 0.0)} \\",

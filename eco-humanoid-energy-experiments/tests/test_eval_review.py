@@ -133,6 +133,8 @@ class EvalReviewTests(unittest.TestCase):
                 "task": "bruce_ppolag",
                 "load_run": "run_a",
                 "checkpoint": 3000,
+                "energy_cost_mode": "reducer_corrected_8",
+                "reducer_rated_torque": [12.0] * 8,
                 "command_x": 0.1,
                 "policy_dt": 0.01,
                 "joint_names": ["hip_yaw_l", "knee_pitch_l"],
@@ -230,6 +232,12 @@ class EvalReviewTests(unittest.TestCase):
             self.assertAlmostEqual(float(rows[1]["e_mix_per_m"]), 3.5)
             self.assertAlmostEqual(float(rows[0]["e_reducer_corrected_per_m"]), 4.0)
             self.assertAlmostEqual(float(rows[1]["e_reducer_corrected_per_m"]), 3.0)
+            with open(result["report_md"], encoding="utf-8") as report_file:
+                report = report_file.read()
+            self.assertIn(
+                "--reducer_rated_torque=12,12,12,12,12,12,12,12",
+                report,
+            )
 
 
 if __name__ == "__main__":
