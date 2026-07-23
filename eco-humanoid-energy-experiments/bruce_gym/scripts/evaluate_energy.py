@@ -23,10 +23,14 @@ from bruce_gym.eval_review import (
     resolve_evaluation_body_and_feet_names,
 )
 from bruce_gym.envs import *  # noqa: F401,F403
-from bruce_gym.naming import policy_id
+from bruce_gym.naming import policy_id, reducer_rated_torque_suffix
 from bruce_gym.rotor_energy import (
     BRUCE_EXPECTED_DOF_NAMES,
     BRUCE_ROTOR_NAMES,
+    REDUCER_CORRECTED_8,
+    REDUCER_POSITIVE_EFFICIENCY_OFFSET,
+    REDUCER_POSITIVE_EFFICIENCY_SCALE,
+    REDUCER_RATED_TORQUE_NM,
     SUPPORTED_ENERGY_COST_MODES,
     bruce_joint_names_from_dof_names,
     bruce_rotor_names_from_dof_names,
@@ -175,6 +179,9 @@ def _pre_step_state(env, robot_index, left_foot_idx, right_foot_idx):
 def _step_energy_snapshot(env, robot_index):
     rotor_pos = _tensor_list(env.rotor_drive_energy_per_motor[robot_index])
     rotor_neg = _tensor_list(env.rotor_brake_energy_per_motor[robot_index])
+    reducer_corrected = _tensor_list(
+        env.reducer_corrected_energy_per_motor[robot_index]
+    )
     yaw_pos = _tensor_list(env.yaw_joint_drive_energy[robot_index])
     yaw_neg = _tensor_list(env.yaw_joint_brake_energy[robot_index])
     joint_pos = _tensor_list(env.joint_drive_energy_per_joint[robot_index])
@@ -183,11 +190,16 @@ def _step_energy_snapshot(env, robot_index):
     return {
         "rotor_pos": rotor_pos,
         "rotor_neg": rotor_neg,
+        "reducer_corrected": reducer_corrected,
         "yaw_pos": yaw_pos,
         "yaw_neg": yaw_neg,
         "joint_pos": joint_pos,
         "joint_neg": joint_neg,
-        **rotor_energy_totals(rotor_pos, rotor_neg),
+        **rotor_energy_totals(
+            rotor_pos,
+            rotor_neg,
+            reducer_corrected if env.reducer_rated_torque is not None else None,
+        ),
         "yaw_pos_total": sum(yaw_pos),
         "yaw_neg_total": sum(yaw_neg),
         "joint_pos_total": sum(joint_pos),
@@ -204,6 +216,7 @@ def _new_episode_accumulator():
         "body_frame_distance_x": 0.0,
         "rotor_pos": [0.0] * len(ROTOR_NAMES),
         "rotor_neg": [0.0] * len(ROTOR_NAMES),
+        "reducer_corrected": [0.0] * len(ROTOR_NAMES),
         "yaw_pos": [0.0, 0.0],
         "yaw_neg": [0.0, 0.0],
         "joint_pos": [0.0] * len(JOINT_NAMES),
@@ -225,6 +238,7 @@ def _accumulate_episode(
     for key in (
         "rotor_pos",
         "rotor_neg",
+        "reducer_corrected",
         "yaw_pos",
         "yaw_neg",
         "joint_pos",
@@ -234,7 +248,9 @@ def _accumulate_episode(
             acc[key][idx] += value
 
 
-def _episode_summary_row(episode_id, acc, timeout, dt):
+def _episode_summary_row(
+    episode_id, acc, timeout, dt, include_reducer_corrected=False
+):
     duration_s = acc["steps"] * dt
     dynamic_duration_s = acc["dynamic_steps"] * dt
     episode_outcome = "success" if timeout else "fall"
@@ -253,7 +269,11 @@ def _episode_summary_row(episode_id, acc, timeout, dt):
         "body_frame_distance_x": acc["body_frame_distance_x"],
         "mean_body_frame_velocity_x": acc["body_frame_distance_x"]
         / max(dynamic_duration_s, 1e-8),
-        **rotor_energy_totals(acc["rotor_pos"], acc["rotor_neg"]),
+        **rotor_energy_totals(
+            acc["rotor_pos"],
+            acc["rotor_neg"],
+            acc["reducer_corrected"] if include_reducer_corrected else None,
+        ),
         "yaw_positive_energy_2": sum(acc["yaw_pos"]),
         "yaw_negative_energy_2": sum(acc["yaw_neg"]),
         "joint_positive_energy_10": sum(acc["joint_pos"]),
@@ -272,6 +292,7 @@ def _empty_phase_stats():
         "valid_steps": 0,
         "rotor_pos": [0.0] * len(ROTOR_NAMES),
         "rotor_neg": [0.0] * len(ROTOR_NAMES),
+        "reducer_corrected": [0.0] * len(ROTOR_NAMES),
         "yaw_pos": [0.0, 0.0],
         "yaw_neg": [0.0, 0.0],
         "joint_pos": [0.0] * len(JOINT_NAMES),
@@ -287,6 +308,7 @@ def _add_energy_lists(values, snapshot):
     for target_key, snapshot_key in (
         ("rotor_pos", "rotor_pos"),
         ("rotor_neg", "rotor_neg"),
+        ("reducer_corrected", "reducer_corrected"),
         ("yaw_pos", "yaw_pos"),
         ("yaw_neg", "yaw_neg"),
         ("joint_pos", "joint_pos"),
@@ -309,6 +331,7 @@ def _merge_phase_accumulators(target, source, episode_outcome):
         for key in (
             "rotor_pos",
             "rotor_neg",
+            "reducer_corrected",
             "yaw_pos",
             "yaw_neg",
             "joint_pos",
@@ -318,7 +341,7 @@ def _merge_phase_accumulators(target, source, episode_outcome):
                 values[key][idx] += value
 
 
-def _phase_summary_rows(phase_acc, dt):
+def _phase_summary_rows(phase_acc, dt, include_reducer_corrected=False):
     rows = []
     for (episode_outcome, phase), values in sorted(phase_acc.items()):
         row = {
@@ -326,7 +349,15 @@ def _phase_summary_rows(phase_acc, dt):
             "phase": phase,
             "episodes": values["episodes"],
             "valid_steps": values["valid_steps"],
-            **rotor_energy_totals(values["rotor_pos"], values["rotor_neg"]),
+            **rotor_energy_totals(
+                values["rotor_pos"],
+                values["rotor_neg"],
+                (
+                    values["reducer_corrected"]
+                    if include_reducer_corrected
+                    else None
+                ),
+            ),
             "yaw_positive_energy_2": sum(values["yaw_pos"]),
             "yaw_negative_energy_2": sum(values["yaw_neg"]),
             "joint_positive_energy_10": sum(values["joint_pos"]),
@@ -343,7 +374,12 @@ def _phase_summary_rows(phase_acc, dt):
 
 def _default_output_dir(args):
     mode = args.energy_cost_mode or "cfg"
-    name = policy_id(args.command_x, mode, args.seed, args.checkpoint)
+    suffix = None
+    if mode == REDUCER_CORRECTED_8:
+        suffix = reducer_rated_torque_suffix(
+            args.reducer_rated_torque or REDUCER_RATED_TORQUE_NM
+        )
+    name = policy_id(args.command_x, mode, args.seed, args.checkpoint, suffix)
     group = f"fixed{int(args.num_eval_episodes)}"
     return os.path.join(LEGGED_GYM_ROOT_DIR, "energy_evaluations", group, name)
 
@@ -375,6 +411,11 @@ def evaluate(args):
         env=env, name=args.task, args=args, train_cfg=train_cfg
     )
     policy = runner.get_inference_policy(device=env.device)
+    reducer_rated_torque = (
+        env.reducer_rated_torque.detach().cpu().tolist()
+        if env.reducer_rated_torque is not None
+        else None
+    )
     _set_fixed_command(env, args)
     env.compute_observations()
     obs = env.get_observations()
@@ -394,6 +435,11 @@ def evaluate(args):
         "checkpoint": train_cfg.runner.checkpoint,
         "seed": args.seed,
         "energy_cost_mode": env.energy_cost_mode,
+        "reducer_rated_torque": reducer_rated_torque,
+        "reducer_positive_efficiency_scale": REDUCER_POSITIVE_EFFICIENCY_SCALE,
+        "reducer_positive_efficiency_offset": REDUCER_POSITIVE_EFFICIENCY_OFFSET,
+        "reducer_efficiency_input": "abs(output_torque) / rated_torque",
+        "reducer_negative_power_efficiency": 1.0,
         "num_eval_episodes": args.num_eval_episodes,
         "command_x": args.command_x,
         "command_y": args.command_y,
@@ -547,6 +593,10 @@ def evaluate(args):
                     "step_world_path_xy": world_path_xy,
                     "body_frame_delta_x": body_frame_delta_x,
                 }
+                if "reducer_corrected_energy_8" in snapshot:
+                    row["reducer_corrected_energy_8"] = snapshot[
+                        "reducer_corrected_energy_8"
+                    ]
                 row.update(pre_step_state)
                 _add_motor_fields(row, "positive_energy", snapshot["rotor_pos"])
                 _add_motor_fields(row, "negative_energy", snapshot["rotor_neg"])
@@ -594,7 +644,15 @@ def evaluate(args):
                 if done:
                     episode_outcome = "success" if timeout else "fall"
                     episode_rows.append(
-                        _episode_summary_row(episode_id, episode_acc, timeout, env.dt)
+                        _episode_summary_row(
+                            episode_id,
+                            episode_acc,
+                            timeout,
+                            env.dt,
+                            include_reducer_corrected=(
+                                env.reducer_rated_torque is not None
+                            ),
+                        )
                     )
                     _merge_phase_accumulators(
                         phase_acc, episode_phase_acc, episode_outcome
@@ -629,7 +687,11 @@ def evaluate(args):
     _write_dicts_csv(os.path.join(output_dir, "step_timeseries.csv"), step_rows)
     _write_dicts_csv(
         os.path.join(output_dir, "phase_summary.csv"),
-        _phase_summary_rows(phase_acc, env.dt),
+        _phase_summary_rows(
+            phase_acc,
+            env.dt,
+            include_reducer_corrected=(env.reducer_rated_torque is not None),
+        ),
     )
 
     if args.make_eval_report:

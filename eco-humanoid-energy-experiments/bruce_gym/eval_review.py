@@ -77,6 +77,7 @@ ENERGY_COST_MODE_NAMES_ZH = {
     "joint_positive_8": "8驱动关节正向能量",
     "rotor_abs_8": "8电机转子绝对能量",
     "rotor_positive_8": "8电机转子正向能量",
+    "reducer_corrected_8": "8电机减速器效率修正能量",
 }
 
 
@@ -427,6 +428,11 @@ def _episode_metric_row(episode_row, step_rows, metadata):
             "review_duration_s": duration_s,
         }
     )
+    reducer_corrected = row.get("reducer_corrected_energy_8")
+    if reducer_corrected not in (None, ""):
+        row["e_reducer_corrected_per_m"] = _safe_div(
+            _to_float(reducer_corrected), distance_x
+        )
     row.update(_contact_fractions(step_rows))
     return row
 
@@ -933,6 +939,17 @@ def _write_report(
             )
         )
 
+    reducer_rated_torque = metadata.get("reducer_rated_torque")
+    reducer_rated_torque_line = []
+    if reducer_rated_torque is not None:
+        if isinstance(reducer_rated_torque, (list, tuple)):
+            reducer_rated_torque = ",".join(
+                format(float(value), ".12g") for value in reducer_rated_torque
+            )
+        reducer_rated_torque_line = [
+            f"  --reducer_rated_torque={reducer_rated_torque} \\",
+        ]
+
     lines.extend(
         [
             "",
@@ -983,6 +1000,7 @@ def _write_report(
             f"  --load_run={metadata.get('load_run', '<load_run>')} \\",
             f"  --checkpoint={metadata.get('checkpoint', '<checkpoint>')} \\",
             f"  --energy_cost_mode={metadata.get('energy_cost_mode', '<mode>')} \\",
+            *reducer_rated_torque_line,
             f"  --command_x={metadata.get('command_x', 0.1)} \\",
             f"  --command_y={metadata.get('command_y', 0.0)} \\",
             f"  --command_yaw={metadata.get('command_yaw', 0.0)} \\",

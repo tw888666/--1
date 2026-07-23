@@ -166,6 +166,8 @@ class EvalReviewTests(unittest.TestCase):
                 "checkpoint": 3000,
                 "command_x": 0.1,
                 "policy_dt": 0.01,
+                "energy_cost_mode": "reducer_corrected_8",
+                "reducer_rated_torque": [2.1] * 8,
                 "joint_names": ["hip_yaw_l", "knee_pitch_l"],
             }
             with open(os.path.join(tmpdir, "metadata.json"), "w") as jsonfile:
@@ -185,6 +187,7 @@ class EvalReviewTests(unittest.TestCase):
                         "rotor_positive_energy_8": 4.0,
                         "rotor_negative_energy_8": 2.0,
                         "rotor_mixed_energy_8": 5.0,
+                        "reducer_corrected_energy_8": 8.0,
                         "joint_positive_energy_10": 6.0,
                         "joint_negative_energy_10": 3.0,
                         "hip_yaw_l_positive_energy": 1.0,
@@ -203,6 +206,7 @@ class EvalReviewTests(unittest.TestCase):
                         "rotor_positive_energy_8": 6.0,
                         "rotor_negative_energy_8": 2.0,
                         "rotor_mixed_energy_8": 7.0,
+                        "reducer_corrected_energy_8": 6.0,
                         "joint_positive_energy_10": 7.0,
                         "joint_negative_energy_10": 3.0,
                         "hip_yaw_l_positive_energy": 1.0,
@@ -257,6 +261,15 @@ class EvalReviewTests(unittest.TestCase):
                 rows = list(csv.DictReader(csvfile))
             self.assertAlmostEqual(float(rows[0]["e_mix_per_m"]), 5.0)
             self.assertAlmostEqual(float(rows[1]["e_mix_per_m"]), 3.5)
+            self.assertAlmostEqual(
+                float(rows[0]["e_reducer_corrected_per_m"]), 8.0
+            )
+            self.assertAlmostEqual(
+                float(rows[1]["e_reducer_corrected_per_m"]), 3.0
+            )
+            with open(result["report_md"], encoding="utf-8") as report_file:
+                report_text = report_file.read()
+            self.assertIn("--reducer_rated_torque=2.1,2.1", report_text)
 
 
 if __name__ == "__main__":

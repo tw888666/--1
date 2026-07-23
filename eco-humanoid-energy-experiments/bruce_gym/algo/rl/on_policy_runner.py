@@ -608,6 +608,9 @@ class OnPolicyRunner:
 
         cost_state = self.alg.actor_critic.cost_critic.state_dict()
         env_cfg = getattr(getattr(self.env, "cfg", None), "env", None)
+        reducer_rated_torque = getattr(self.env, "reducer_rated_torque", None)
+        if isinstance(reducer_rated_torque, torch.Tensor):
+            reducer_rated_torque = reducer_rated_torque.detach().cpu().tolist()
         metadata = {
             "mode": "policy_reward_critic_warm_start",
             "source_checkpoint": os.path.abspath(path),
@@ -625,6 +628,7 @@ class OnPolicyRunner:
             "cost_critic_reset_seed": int(reset_seed),
             "cost_critic_initial_sha256": self._state_dict_sha256(cost_state),
             "energy_cost_mode": getattr(self.env, "energy_cost_mode", None),
+            "reducer_rated_torque": reducer_rated_torque,
             "cost_limit1": getattr(env_cfg, "cost_limit1", None),
             "num_envs": int(self.env.num_envs),
             "training_seed": self.all_cfg.get("seed"),

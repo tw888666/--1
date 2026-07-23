@@ -42,6 +42,7 @@ jp8    = joint_positive_8
 ja8    = joint_abs_8
 lja10  = legacy_joint_abs_10
 rm8a05 = rotor_mixed_8_alpha050
+rc8    = reducer_corrected_8（默认 T_N=2.1 N·m）
 ```
 
 Each policy directory contains:

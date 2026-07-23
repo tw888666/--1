@@ -54,6 +54,7 @@ class BruceWalkP3OCfg(LeggedRobotCfg):
         env_cost_num = 1
         energy_cost_mode = "legacy_joint_abs_10"
         koala_gear_ratio = 9.0
+        reducer_rated_torque = 2.1  # output-side T_N [N m] for reducer_corrected_8
     class safety:
         # safety factors
         pos_limit = 1.0

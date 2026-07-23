@@ -3,6 +3,7 @@ import unittest
 from bruce_gym.naming import (
     energy_cost_alias,
     policy_id,
+    reducer_rated_torque_suffix,
     velocity_token,
 )
 
@@ -19,6 +20,14 @@ class NamingTests(unittest.TestCase):
         self.assertEqual(energy_cost_alias("joint_abs_8"), "ja8")
         self.assertEqual(energy_cost_alias("legacy_joint_abs_10"), "lja10")
         self.assertEqual(energy_cost_alias("rotor_mixed_8_alpha050"), "rm8a05")
+        self.assertEqual(energy_cost_alias("reducer_corrected_8"), "rc8")
+
+    def test_reducer_rated_torque_suffix_records_tn(self):
+        self.assertEqual(reducer_rated_torque_suffix(2.1), "tn2p1")
+        self.assertEqual(
+            reducer_rated_torque_suffix("2.1"),
+            reducer_rated_torque_suffix(2.1),
+        )
 
     def test_policy_id_matches_directory_rule(self):
         self.assertEqual(

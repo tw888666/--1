@@ -211,6 +211,29 @@ python bruce_gym/scripts/train.py \
   --rl_device=cuda:0
 ```
 
+### `reducer_corrected_8` 减速器效率修正代价
+
+`reducer_corrected_8`（简称 `rc8`）按8个传动电机计算：
+
+\[
+E_{\mathrm{rc8}}=\sum_j\left(\frac{P_j^+}{\eta(x_j)}+P_j^-\right)\Delta t,
+\qquad
+x_j=\frac{|T_j|}{T_N},
+\qquad
+\eta(x_j)=\frac{0.905x_j}{x_j+0.2735}.
+\]
+
+其中 `T_j` 是减速器输出端力矩，默认额定输出端力矩
+`T_N=2.1 N·m`。该分支仍保留原 ECO 的采样语义：每个 policy step
+（策略步）结束后使用最后一个 physics substep（物理子步）的力矩和速度采样一次，
+没有改为逐物理子步积分。启用方式：
+
+```bash
+--energy_cost_mode=reducer_corrected_8 --reducer_rated_torque=2.1
+```
+
+正式训练前需要先用相同配置校准 `cost_limit1`，不能沿用其他代价模式的阈值。
+
 ### Play (Isaac Gym)
 
 We store trained models in `logs/exp/`. Before evaluation, choose the target run directory from `logs/exp/<timestamp>_<run_name>` and use that path for `--load_run` / `--load_model`.

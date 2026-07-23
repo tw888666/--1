@@ -39,7 +39,10 @@ from isaacgym import gymapi
 from isaacgym import gymutil
 
 from bruce_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
-from bruce_gym.rotor_energy import SUPPORTED_ENERGY_COST_MODES
+from bruce_gym.rotor_energy import (
+    SUPPORTED_ENERGY_COST_MODES,
+    parse_reducer_rated_torque_spec,
+)
 
 
 def class_to_dict(obj) -> dict:
@@ -160,6 +163,11 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
                     f"Supported modes are: {SUPPORTED_ENERGY_COST_MODES}"
                 )
             env_cfg.env.energy_cost_mode = args.energy_cost_mode
+        reducer_rated_torque = getattr(args, "reducer_rated_torque", None)
+        if reducer_rated_torque is not None:
+            env_cfg.env.reducer_rated_torque = parse_reducer_rated_torque_spec(
+                reducer_rated_torque
+            )
     if cfg_train is not None:
         if args.cost_limit1 is not None:
             cfg_train.algorithm.cost_limit1 = args.cost_limit1
@@ -315,6 +323,15 @@ def get_args():
             "name": "--energy_cost_mode",
             "type": str,
             "help": f"Energy cost mode. Supported: {SUPPORTED_ENERGY_COST_MODES}.",
+        },
+        {
+            "name": "--reducer_rated_torque",
+            "type": str,
+            "help": (
+                "Reducer output-side rated torque T_N in N m: one shared value "
+                "or eight comma-separated motor values. Defaults to 2.1 for "
+                "reducer_corrected_8."
+            ),
         },
         {
             "name": "--num_eval_episodes",

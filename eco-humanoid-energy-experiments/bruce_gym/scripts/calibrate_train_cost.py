@@ -26,11 +26,16 @@ from bruce_gym.envs import *  # noqa: F401,F403
 from bruce_gym.paired_evaluation import canonical_fingerprint
 from bruce_gym.rotor_energy import (
     CONTROL_ENERGY_COST_MODES,
+    REDUCER_CORRECTED_8,
+    REDUCER_POSITIVE_EFFICIENCY_OFFSET,
+    REDUCER_POSITIVE_EFFICIENCY_SCALE,
+    REDUCER_RATED_TORQUE_NM,
     ROTOR_MIXED_8,
     SUPPORTED_ENERGY_COST_MODES,
+    bruce_rotor_names_from_dof_names,
     energy_costs_from_policy_step_buffers,
 )
-from bruce_gym.naming import policy_id
+from bruce_gym.naming import policy_id, reducer_rated_torque_suffix
 from bruce_gym.utils import get_args, task_registry
 from bruce_gym.utils.helpers import class_to_dict
 
@@ -117,7 +122,12 @@ def _set_calibration_config(env_cfg, args):
 
 def _default_output_dir(args, train_cfg, mode):
     checkpoint = train_cfg.runner.checkpoint
-    name = policy_id(args.command_x, mode, args.seed, checkpoint)
+    suffix = None
+    if mode == REDUCER_CORRECTED_8:
+        suffix = reducer_rated_torque_suffix(
+            args.reducer_rated_torque or REDUCER_RATED_TORQUE_NM
+        )
+    name = policy_id(args.command_x, mode, args.seed, checkpoint, suffix)
     group = f"train_dist{int(args.calibration_episodes)}"
     return os.path.join(LEGGED_GYM_ROOT_DIR, "energy_calibrations", group, name)
 
@@ -134,9 +144,12 @@ def _collect_complete_episodes(env, policy, args):
 
     device = env.device
     episode_cost = torch.zeros(env.num_envs, dtype=torch.float, device=device)
+    reported_cost_modes = list(CONTROL_ENERGY_COST_MODES)
+    if env.energy_cost_mode not in reported_cost_modes:
+        reported_cost_modes.append(env.energy_cost_mode)
     episode_costs_by_mode = {
         mode: torch.zeros_like(episode_cost)
-        for mode in CONTROL_ENERGY_COST_MODES
+        for mode in reported_cost_modes
     }
     episode_body_distance = torch.zeros_like(episode_cost)
     episode_steps = torch.zeros(
@@ -188,6 +201,11 @@ def _collect_complete_episodes(env, policy, args):
                     env.joint_brake_energy_per_joint,
                     env.rotor_drive_energy,
                     env.rotor_brake_energy,
+                    (
+                        env.reducer_corrected_energy
+                        if env.reducer_rated_torque is not None
+                        else None
+                    ),
                 )
                 for mode, step_cost in step_costs_by_mode.items():
                     episode_costs_by_mode[mode] += step_cost.reshape(-1)
@@ -256,7 +274,7 @@ def _collect_complete_episodes(env, policy, args):
                             "mean_body_frame_velocity_x": float(distance)
                             / max(duration_s, 1e-8),
                         }
-                        for mode in CONTROL_ENERGY_COST_MODES:
+                        for mode in reported_cost_modes:
                             row[f"cost1_{mode}"] = float(
                                 batch_costs_by_mode[mode][batch_index]
                             )
@@ -310,7 +328,10 @@ def calibrate(args):
         episode_rows, limit_fraction=args.calibration_limit_fraction
     )
     cost_mode_summaries = {}
-    for reported_mode in CONTROL_ENERGY_COST_MODES:
+    reported_cost_modes = list(CONTROL_ENERGY_COST_MODES)
+    if mode not in reported_cost_modes:
+        reported_cost_modes.append(mode)
+    for reported_mode in reported_cost_modes:
         mode_rows = []
         for row in episode_rows:
             mode_row = dict(row)
@@ -330,6 +351,16 @@ def calibrate(args):
         "checkpoint": train_cfg.runner.checkpoint,
         "seed": env_cfg.seed,
         "energy_cost_mode": env.energy_cost_mode,
+        "reducer_rated_torque": (
+            env.reducer_rated_torque.detach().cpu().tolist()
+            if env.reducer_rated_torque is not None
+            else None
+        ),
+        "reducer_positive_efficiency_scale": REDUCER_POSITIVE_EFFICIENCY_SCALE,
+        "reducer_positive_efficiency_offset": REDUCER_POSITIVE_EFFICIENCY_OFFSET,
+        "reducer_efficiency_input": "abs(output_torque) / rated_torque",
+        "reducer_negative_power_efficiency": 1.0,
+        "rotor_names": list(bruce_rotor_names_from_dof_names(env.dof_names)),
         "calibration_profile": "training_distribution_fixed_lin_vel_x",
         "calibration_episodes": args.calibration_episodes,
         "calibration_limit_fraction": args.calibration_limit_fraction,
@@ -349,7 +380,7 @@ def calibrate(args):
             "one first complete episode from each member of an evenly spaced "
             "fixed environment cohort"
         ),
-        "reported_cost_modes": list(CONTROL_ENERGY_COST_MODES),
+        "reported_cost_modes": reported_cost_modes,
         "scenario_manifest": "scenario_manifest.json",
         "scenario_fingerprint_sha256": scenario_manifest["sha256"],
         "scenario_pairing_scope": scenario_manifest["scope"],

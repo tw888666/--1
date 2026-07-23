@@ -48,11 +48,13 @@ from bruce_gym.utils.helpers import class_to_dict
 from bruce_gym.rotor_energy import (
     BRUCE_YAW_JOINT_INDICES,
     LEGACY_JOINT_ABS_10,
+    REDUCER_CORRECTED_8,
     SUPPORTED_ENERGY_COST_MODES,
     assert_bruce_dof_order,
     compute_bruce_energy_terms,
     energy_cost_from_terms,
     make_bruce_transmission_tensors,
+    make_reducer_rated_torque_tensor,
 )
 from .legged_robot_config import LeggedRobotCfg
 
@@ -163,6 +165,13 @@ class LeggedRobot(BaseTask):
         self._bruce_transmission = make_bruce_transmission_tensors(
             self.torques.device, self.torques.dtype, self.koala_gear_ratio
         )
+        self.reducer_rated_torque = None
+        if self.energy_cost_mode == REDUCER_CORRECTED_8:
+            self.reducer_rated_torque = make_reducer_rated_torque_tensor(
+                getattr(self.cfg.env, "reducer_rated_torque", None),
+                self.torques.device,
+                self.torques.dtype,
+            )
 
         self.cost1_buf = torch.zeros(
             self.num_envs, dtype=torch.float, device=self.device, requires_grad=False
@@ -176,6 +185,10 @@ class LeggedRobot(BaseTask):
         self.rotor_power = torch.zeros_like(self.rotor_output_torque)
         self.rotor_drive_energy_per_motor = torch.zeros_like(self.rotor_output_torque)
         self.rotor_brake_energy_per_motor = torch.zeros_like(self.rotor_output_torque)
+        self.reducer_corrected_energy_per_motor = torch.zeros_like(
+            self.rotor_output_torque
+        )
+        self.reducer_corrected_energy = torch.zeros_like(self.cost1_buf)
         self.rotor_drive_energy = torch.zeros_like(self.cost1_buf)
         self.rotor_brake_energy = torch.zeros_like(self.cost1_buf)
         self.joint_power = torch.zeros(
@@ -204,6 +217,7 @@ class LeggedRobot(BaseTask):
             self.energy_sample_dt,
             transmission=self._bruce_transmission,
             gear_ratio=self.koala_gear_ratio,
+            reducer_rated_torque=self.reducer_rated_torque,
         )
         self.cost1_buf[:] = energy_cost_from_terms(terms, self.energy_cost_mode)
 
@@ -214,6 +228,14 @@ class LeggedRobot(BaseTask):
         self.rotor_power[:] = terms["rotor_power"]
         self.rotor_drive_energy_per_motor[:] = terms["rotor_drive_energy_per_motor"]
         self.rotor_brake_energy_per_motor[:] = terms["rotor_brake_energy_per_motor"]
+        if "reducer_corrected_energy_per_motor" in terms:
+            self.reducer_corrected_energy_per_motor[:] = terms[
+                "reducer_corrected_energy_per_motor"
+            ]
+            self.reducer_corrected_energy[:] = terms["reducer_corrected_energy"]
+        else:
+            self.reducer_corrected_energy_per_motor.zero_()
+            self.reducer_corrected_energy.zero_()
         self.rotor_drive_energy[:] = terms["rotor_drive_energy"]
         self.rotor_brake_energy[:] = terms["rotor_brake_energy"]
         self.joint_power[:] = terms["joint_power_all"]
