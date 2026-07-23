@@ -207,8 +207,10 @@ def _collect_complete_episodes(env, policy, args):
                         else None
                     ),
                 )
-                for mode, step_cost in step_costs_by_mode.items():
-                    episode_costs_by_mode[mode] += step_cost.reshape(-1)
+                for mode in reported_cost_modes:
+                    episode_costs_by_mode[mode] += step_costs_by_mode[
+                        mode
+                    ].reshape(-1)
                 episode_body_distance += env.base_lin_vel[:, 0] * env.dt
                 episode_steps += 1
 
